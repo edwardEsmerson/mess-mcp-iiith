@@ -102,7 +102,7 @@ PUBLIC_URL=https://your-host MCP_SECRET=$(openssl rand -base64 32) npm run start
 | `MCP_SECRET` | (required) | 32 random bytes, base64. Encrypts stored keys and signs sign-in pages |
 | `HOST` / `PORT` | `127.0.0.1` / `3000` | Where to listen |
 | `DATA_DIR` | `./data` | SQLite database location (systemd's `StateDirectory` takes precedence) |
-| `ALLOWED_HOSTS` | `PUBLIC_URL`'s host + localhost | Extra `Host` headers to accept |
+| `ALLOWED_HOSTS` | `PUBLIC_URL`'s host, `localhost`, `127.0.0.1` | Extra `Host` headers to accept |
 | `ALLOWED_ORIGINS` | `PUBLIC_URL`'s host | Extra browser origins to accept |
 | `TRUST_PROXY` | `loopback` | Proxies trusted for client IPs (rate limiting) |
 | `MESS_API_URL` | `https://mess.iiit.ac.in/api` | Portal API base URL |
