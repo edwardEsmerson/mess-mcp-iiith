@@ -1,0 +1,34 @@
+{
+  "name": "mess-mcp-iiith",
+  "version": "0.1.0",
+  "description": "MCP server for the IIIT Hyderabad dining portal: menus, registrations, cancellations, extras and bills from any MCP client",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "Ayaansh <solankiayaansh@gmail.com>",
+  "bin": {
+    "mess-mcp-iiith": "dist/stdio.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/stdio.js",
+    "start:http": "node dist/http.js"
+  },
+  "engines": {
+    "node": ">=20.6"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}
