@@ -64,14 +64,14 @@ claude mcp add mess -s user -e MESS_API_KEY=your-key -- node /path/to/mess-mcp-i
 
 ### Option 2: connect to a hosted server (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code)
 
-A public instance runs at **`https://mess.iiith-mess-mcp.tech/mcp`** (or run your own, see [docs/hosting.md](docs/hosting.md)); the URL is all you need. The first time you connect, a page opens asking for your dining auth key. The server checks the key with the portal, stores it encrypted and gives your app its own token. You never put the key in a config file.
+A public instance runs at **`https://iiith-mess-mcp.tech/mcp`** (or run your own, see [docs/hosting.md](docs/hosting.md)); the URL is all you need. The first time you connect, a page opens asking for your dining auth key. The server checks the key with the portal, stores it encrypted and gives your app its own token. You never put the key in a config file.
 
 **claude.ai / Claude Desktop / mobile:** Settings → Connectors → Add custom connector → paste the URL → Connect.
 
 **Claude Code:**
 
 ```bash
-claude mcp add --transport http mess https://mess.iiith-mess-mcp.tech/mcp -s user
+claude mcp add --transport http mess https://iiith-mess-mcp.tech/mcp -s user
 ```
 
 Then run `/mcp` in Claude Code and pick `mess` to sign in.
@@ -79,11 +79,11 @@ Then run `/mcp` in Claude Code and pick `mess` to sign in.
 **Cursor** (`~/.cursor/mcp.json`) and **VS Code** (`.vscode/mcp.json`):
 
 ```json
-{ "mcpServers": { "mess": { "url": "https://mess.iiith-mess-mcp.tech/mcp" } } }
+{ "mcpServers": { "mess": { "url": "https://iiith-mess-mcp.tech/mcp" } } }
 ```
 
 ```json
-{ "servers": { "mess": { "type": "http", "url": "https://mess.iiith-mess-mcp.tech/mcp" } } }
+{ "servers": { "mess": { "type": "http", "url": "https://iiith-mess-mcp.tech/mcp" } } }
 ```
 
 If you revoke the key on the portal, the next request fails and your app asks you to sign in again. To disconnect, remove the connector in your app and delete the key on the portal.

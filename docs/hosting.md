@@ -64,7 +64,7 @@ tailscale funnel status
 
 If Funnel isn't enabled for your tailnet yet, the command prints a link that turns it on. `--bg` keeps the setting across reboots. Funnel exposes everything served on that port, so don't mix private services into the 443 config.
 
-**Your own domain (optional):** a Cloudflare Worker on the domain forwards every request to the Funnel URL. The public instance runs this way at `mess.iiith-mess-mcp.tech`.
+**Your own domain (optional):** a Cloudflare Worker on the domain forwards every request to the Funnel URL. The public instance runs this way at `iiith-mess-mcp.tech`.
 
 1. Add the domain to Cloudflare (free plan) and point its nameservers at Cloudflare. No DNS records are needed; the Worker's custom domain creates them.
 2. Edit `deploy/cloudflare-worker/wrangler.toml`: set `pattern` to your hostname and `ORIGIN` to your Funnel URL (no path).
@@ -77,7 +77,7 @@ If Funnel isn't enabled for your tailnet yet, the command prints a link that tur
 4. On the server, make the domain the public URL and accept the Funnel hostname the Worker forwards to, then restart:
    ```bash
    # in /etc/mess-mcp.env
-   PUBLIC_URL=https://mess.your-domain.tld
+   PUBLIC_URL=https://your-domain.tld
    ALLOWED_HOSTS=your-machine.your-tailnet.ts.net
    ```
    ```bash
