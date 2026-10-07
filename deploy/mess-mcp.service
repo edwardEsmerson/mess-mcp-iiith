@@ -1,0 +1,42 @@
+# systemd unit for the hosted (HTTP + OAuth) server. See docs/hosting.md.
+# Install: sudo cp deploy/mess-mcp.service /etc/systemd/system/ && sudo systemctl enable --now mess-mcp
+
+[Unit]
+Description=IIITH Mess MCP server
+Wants=network-online.target
+After=network-online.target
+# Optional: swap in your own failure notifier, or delete this line
+OnFailure=notify-failure@%n.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mess-mcp.env
+ExecStart=/usr/bin/node /opt/mess-mcp/dist/http.js
+Restart=on-failure
+RestartSec=5
+
+# Node idles around 60 MB; cap it so a leak can't starve a small host
+MemoryMax=256M
+CPUQuota=100%
+
+# Runs as a throwaway user; the database lives in /var/lib/mess-mcp (STATE_DIRECTORY)
+DynamicUser=yes
+StateDirectory=mess-mcp
+StateDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

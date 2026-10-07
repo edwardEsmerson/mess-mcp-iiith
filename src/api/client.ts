@@ -7,7 +7,16 @@ interface ApiError {
 
 export const DEFAULT_API_URL = "https://mess.iiit.ac.in/api";
 
-type Params = Record<string, string | number | undefined>;
+export type Params = Record<string, string | number | undefined>;
+
+// What the tools need from the portal. Tools depend on this, not on the HTTP client,
+// so other layers can wrap it (see RevokeOnUnauthorized in auth/).
+export interface MessApi {
+  get<T>(endpoint: string, params?: Params): Promise<T>;
+  post<T>(endpoint: string, body?: unknown): Promise<T>;
+  put<T>(endpoint: string, body?: unknown): Promise<T>;
+  delete<T>(endpoint: string, params?: Params): Promise<T>;
+}
 
 export class MessApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -16,7 +25,7 @@ export class MessApiError extends Error {
   }
 }
 
-export class MessApiClient {
+export class MessApiClient implements MessApi {
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string = process.env.MESS_API_URL || DEFAULT_API_URL,
