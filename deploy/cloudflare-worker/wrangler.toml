@@ -3,7 +3,7 @@ main = "worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 
-routes = [{ pattern = "mess.iiith-mess-mcp.tech", custom_domain = true }]
+routes = [{ pattern = "iiith-mess-mcp.tech", custom_domain = true }]
 
 [vars]
 # The campus server's Tailscale Funnel origin, no path.
