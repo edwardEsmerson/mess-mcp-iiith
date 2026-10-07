@@ -53,6 +53,7 @@ src/
     pages.ts         HTML rendering only
     revoke-on-unauthorized.ts   MessApi decorator: portal 401 revokes the grant
 deploy/mess-mcp.service      systemd unit (see docs/hosting.md)
+deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to the Funnel URL
 ```
 
 ## Conventions
@@ -77,7 +78,7 @@ deploy/mess-mcp.service      systemd unit (see docs/hosting.md)
 
 ## Constraints
 
-- The portal API is only reachable from the IIITH network or VPN. A hosted instance must run on campus (e.g. exposed via Cloudflare Tunnel); a normal cloud host can't reach it.
+- The portal API is only reachable from the IIITH network or VPN. A hosted instance must run on campus; a normal cloud host can't reach it. Campus blocks outbound port 7844, so Cloudflare Tunnel doesn't work there: expose it with Tailscale Funnel (443) and, for a custom domain, the Worker in `deploy/cloudflare-worker/`.
 - The API is undocumented; endpoint shapes are known from use, not docs. When unsure what an endpoint returns, ask the user to run a read-only call rather than guessing.
 
 ## Roadmap

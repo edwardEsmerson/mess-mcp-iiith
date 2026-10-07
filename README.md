@@ -64,14 +64,14 @@ claude mcp add mess -s user -e MESS_API_KEY=your-key -- node /path/to/mess-mcp-i
 
 ### Option 2: connect to a hosted server (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code)
 
-If someone on campus runs the hosted server (see [docs/hosting.md](docs/hosting.md)), you only need its URL, e.g. `https://mess.example.ts.net/mcp`. The first time you connect, a page opens asking for your dining auth key. The server checks the key with the portal, stores it encrypted and gives your app its own token. You never put the key in a config file.
+A public instance runs at **`https://mess.iiith-mess-mcp.tech/mcp`** (or run your own, see [docs/hosting.md](docs/hosting.md)); the URL is all you need. The first time you connect, a page opens asking for your dining auth key. The server checks the key with the portal, stores it encrypted and gives your app its own token. You never put the key in a config file.
 
 **claude.ai / Claude Desktop / mobile:** Settings → Connectors → Add custom connector → paste the URL → Connect.
 
 **Claude Code:**
 
 ```bash
-claude mcp add --transport http mess https://your-host/mcp -s user
+claude mcp add --transport http mess https://mess.iiith-mess-mcp.tech/mcp -s user
 ```
 
 Then run `/mcp` in Claude Code and pick `mess` to sign in.
@@ -79,18 +79,18 @@ Then run `/mcp` in Claude Code and pick `mess` to sign in.
 **Cursor** (`~/.cursor/mcp.json`) and **VS Code** (`.vscode/mcp.json`):
 
 ```json
-{ "mcpServers": { "mess": { "url": "https://your-host/mcp" } } }
+{ "mcpServers": { "mess": { "url": "https://mess.iiith-mess-mcp.tech/mcp" } } }
 ```
 
 ```json
-{ "servers": { "mess": { "type": "http", "url": "https://your-host/mcp" } } }
+{ "servers": { "mess": { "type": "http", "url": "https://mess.iiith-mess-mcp.tech/mcp" } } }
 ```
 
 If you revoke the key on the portal, the next request fails and your app asks you to sign in again. To disconnect, remove the connector in your app and delete the key on the portal.
 
 ### Option 3: host it yourself
 
-Run the HTTP server on a machine on the IIITH network and expose it over HTTPS (Tailscale Funnel or Cloudflare Tunnel). Step by step: [docs/hosting.md](docs/hosting.md).
+Run the HTTP server on a machine on the IIITH network and expose it over HTTPS (Tailscale Funnel, optionally behind your own domain with a Cloudflare Worker). Step by step: [docs/hosting.md](docs/hosting.md).
 
 ```bash
 PUBLIC_URL=https://your-host MCP_SECRET=$(openssl rand -base64 32) npm run start:http
@@ -130,7 +130,7 @@ npx @modelcontextprotocol/inspector -e MESS_API_KEY=your-key node dist/stdio.js
 - [x] Port tools to `McpServer.registerTool` with zod validation and tool annotations
 - [x] MCP TypeScript SDK v2 (spec 2026-07-28), stateless Streamable HTTP
 - [x] OAuth sign-in (paste your dining key once), so claude.ai, Claude Desktop and Claude Code's `/mcp` can connect with just a URL
-- [x] systemd unit and a hosting guide (Tailscale Funnel or Cloudflare Tunnel)
+- [x] systemd unit and a hosting guide (Tailscale Funnel, custom domain via a Cloudflare Worker)
 - [x] End-to-end test suite (`npm test`)
 - [ ] Publish to npm for `npx` installs
 
