@@ -1,86 +1,94 @@
 #!/usr/bin/env node
-// Hosted mode: Streamable HTTP on POST /mcp.
-// Each request carries the user's own dining portal key as `Authorization: Bearer <key>`.
-// The server is stateless: it builds a fresh MCP server per request and never stores keys.
+// Hosted mode: Streamable HTTP on /mcp, protected by OAuth.
+// This process is both the MCP resource server and its authorization server (see auth/).
+// Users sign in once by pasting their dining key; clients then send our own access tokens.
 
-import type { NextFunction, Request, Response } from "express";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "./server.js";
+import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, type AuthInfo } from "@modelcontextprotocol/server";
+import express from "express";
+import { hostHeaderValidation, mcpAuthMetadataRouter, originValidation, requireBearerAuth } from "@modelcontextprotocol/express";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { MessApiClient, type MessApi } from "./api/client.js";
+import { createAuthorizationServer } from "./auth/index.js";
+import { RevokeOnUnauthorized } from "./auth/revoke-on-unauthorized.js";
+import { openDatabase } from "./auth/sqlite.js";
+import { loadHttpConfig } from "./config.js";
+import { createServer, SERVER_NAME } from "./server.js";
 
-const HOST = process.env.HOST || "127.0.0.1";
-const PORT = Number(process.env.PORT || 3000);
-const ALLOWED_HOSTS = csv(process.env.ALLOWED_HOSTS);
-const ALLOWED_ORIGINS = csv(process.env.ALLOWED_ORIGINS);
+const DOCS_URL = "https://github.com/edwardEsmerson/mess-mcp-iiith#readme";
 
-// Host header validation (DNS rebinding protection) comes from the SDK
-const app = createMcpExpressApp({ host: HOST, allowedHosts: ALLOWED_HOSTS.length ? ALLOWED_HOSTS : undefined });
-
-function csv(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+let config;
+try {
+  config = loadHttpConfig();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
 }
 
-function jsonRpcError(res: Response, status: number, message: string) {
-  res.status(status).json({ jsonrpc: "2.0", error: { code: -32000, message }, id: null });
+const db = openDatabase(config.databasePath);
+const auth = createAuthorizationServer({
+  issuer: config.publicOrigin,
+  resource: config.resourceUrl.href,
+  masterSecret: config.masterSecret,
+  db,
+  apiFor: (key) => new MessApiClient(key),
+  documentation: DOCS_URL,
+});
+
+// A user's portal access for one request, built from the grant their token points to
+function apiFor(authInfo: AuthInfo | undefined): MessApi {
+  const grantId = authInfo?.extra?.grantId;
+  const key = typeof grantId === "string" ? auth.grants.diningKeyFor(grantId) : undefined;
+  if (!key) throw new Error("No dining key for this token. Reconnect this app.");
+  return new RevokeOnUnauthorized(new MessApiClient(key), () => auth.grants.revoke(grantId as string));
 }
 
-// The spec requires validating Origin; server-to-server clients (claude.ai, Claude Code) send none
-function checkOrigin(req: Request, res: Response, next: NextFunction) {
-  const origin = req.headers.origin;
-  if (origin && !ALLOWED_ORIGINS.includes(origin)) return jsonRpcError(res, 403, `Origin ${origin} is not allowed`);
-  next();
-}
+const mcp = toNodeHandler(
+  createMcpHandler(({ authInfo }) => createServer(apiFor(authInfo)), {
+    // Never log request objects or headers: they carry tokens
+    onerror: (error) => console.error("MCP error:", error.message),
+  }),
+);
 
-function bearerKey(req: Request): string | undefined {
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
-  return match?.[1].trim() || undefined;
-}
+// Host validation (DNS rebinding protection) applies everywhere. Origin validation applies to /mcp only:
+// the sign-in page sends `Referrer-Policy: no-referrer`, so browsers submit its form with `Origin: null`,
+// and that form is already protected by its signed request.
+const app = express();
+app.use(hostHeaderValidation(config.allowedHosts));
+app.use(express.json());
+app.set("trust proxy", config.trustProxy);
 
 app.get("/healthz", (_req, res) => {
   res.type("text/plain").send("ok");
 });
 
-app.post("/mcp", checkOrigin, async (req, res) => {
-  const apiKey = bearerKey(req);
-  if (!apiKey) {
-    res.setHeader("WWW-Authenticate", 'Bearer realm="mess-mcp-iiith"');
-    return jsonRpcError(
-      res,
-      401,
-      "Missing API key. Send `Authorization: Bearer <key>` with a key from dining.iiit.ac.in -> Settings -> Auth Keys.",
-    );
-  }
+app.use(
+  mcpAuthMetadataRouter({
+    oauthMetadata: auth.metadata,
+    resourceServerUrl: config.resourceUrl,
+    resourceName: "IIITH Mess",
+    serviceDocumentationUrl: new URL(DOCS_URL),
+    dangerouslyAllowInsecureIssuerUrl: config.insecureLocalIssuer,
+  }),
+);
+app.use(auth.router);
 
-  const server = createServer(apiKey);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  res.on("close", () => {
-    void transport.close();
-    void server.close();
-  });
+app.all(
+  "/mcp",
+  originValidation(config.allowedOrigins),
+  requireBearerAuth({
+    verifier: auth.verifier,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(config.resourceUrl),
+    expectedResource: config.resourceUrl,
+  }),
+  (req, res) => mcp(req, res, req.body),
+);
 
-  try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    // Never log request headers: they contain the user's key
-    console.error("Error handling /mcp request:", error instanceof Error ? error.message : error);
-    if (!res.headersSent) jsonRpcError(res, 500, "Internal server error");
-  }
-});
+setInterval(() => auth.housekeeping.deleteExpired(Date.now()), 60 * 60 * 1000).unref();
 
-// Stateless server: no SSE stream to open and no session to delete
-app.all("/mcp", (_req, res) => {
-  res.setHeader("Allow", "POST");
-  jsonRpcError(res, 405, "Method not allowed. This server is stateless; use POST.");
-});
-
-app.listen(PORT, HOST, (error?: Error) => {
+app.listen(config.port, config.host, (error?: Error) => {
   if (error) {
     console.error(error.message);
     process.exit(1);
   }
-  console.error(`mess-mcp-iiith listening on http://${HOST}:${PORT}/mcp`);
+  console.error(`${SERVER_NAME} listening on http://${config.host}:${config.port}/mcp (public: ${config.resourceUrl.href})`);
 });

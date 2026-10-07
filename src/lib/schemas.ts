@@ -2,7 +2,7 @@
 // The mess runs on IST, so "today" is computed in Asia/Kolkata regardless of the host's timezone.
 
 import { z } from "zod";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/server";
 
 export const meal = z.enum(["breakfast", "lunch", "snacks", "dinner"]).describe("Meal type");
 export const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").describe("Date as YYYY-MM-DD");

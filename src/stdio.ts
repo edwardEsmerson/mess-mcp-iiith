@@ -2,7 +2,8 @@
 // Local mode: the client starts this process and talks over stdin/stdout.
 // The API key comes from the MESS_API_KEY environment variable.
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { MessApiClient } from "./api/client.js";
 import { createServer } from "./server.js";
 
 const apiKey = process.env.MESS_API_KEY;
@@ -11,7 +12,7 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const server = createServer(apiKey);
-await server.connect(new StdioServerTransport());
+const api = new MessApiClient(apiKey);
+serveStdio(() => createServer(api), { onerror: (error) => console.error(error.message) });
 // stdout carries the protocol, so logs go to stderr
 console.error("mess-mcp-iiith running on stdio");
