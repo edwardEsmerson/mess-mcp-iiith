@@ -8,7 +8,7 @@ This runs the HTTP server with OAuth so anyone at IIITH can add it to claude.ai,
   ```bash
   curl -s -o /dev/null -w '%{http_code}\n' https://mess.iiit.ac.in/api/auth/me   # expect 401
   ```
-- **A public HTTPS address.** claude.ai connects from Anthropic's servers, not from campus. These steps use Tailscale Funnel, which needs no domain. Cloudflare Tunnel also works if you have a domain on Cloudflare.
+- **A public HTTPS address.** claude.ai connects from Anthropic's servers, not from campus. These steps use Tailscale Funnel, which needs no domain. To use your own domain, put a Cloudflare Worker in front of Funnel (step 4). Cloudflare Tunnel does **not** work on campus: it needs outbound port 7844 (UDP and TCP), which the IIITH network blocks.
 - Node.js 22.13+ (`sudo apt install nodejs npm` on Ubuntu 24.04+).
 
 Resources are tiny: about 60 MB RAM, and a SQLite file that grows by a few KB per user.
@@ -64,17 +64,37 @@ tailscale funnel status
 
 If Funnel isn't enabled for your tailnet yet, the command prints a link that turns it on. `--bg` keeps the setting across reboots. Funnel exposes everything served on that port, so don't mix private services into the 443 config.
 
-**Cloudflare Tunnel (alternative):** create a tunnel in the Cloudflare dashboard with a public hostname pointing at `http://127.0.0.1:3000`, install it with `sudo cloudflared service install <token>`, and set `PUBLIC_URL=https://that-hostname`.
+**Your own domain (optional):** a Cloudflare Worker on the domain forwards every request to the Funnel URL. The public instance runs this way at `mess.iiith-mess-mcp.tech`.
+
+1. Add the domain to Cloudflare (free plan) and point its nameservers at Cloudflare. No DNS records are needed; the Worker's custom domain creates them.
+2. Edit `deploy/cloudflare-worker/wrangler.toml`: set `pattern` to your hostname and `ORIGIN` to your Funnel URL (no path).
+3. Deploy from your own computer:
+   ```bash
+   cd deploy/cloudflare-worker
+   npx wrangler login
+   npx wrangler deploy
+   ```
+4. On the server, make the domain the public URL and accept the Funnel hostname the Worker forwards to, then restart:
+   ```bash
+   # in /etc/mess-mcp.env
+   PUBLIC_URL=https://mess.your-domain.tld
+   ALLOWED_HOSTS=your-machine.your-tailnet.ts.net
+   ```
+   ```bash
+   sudo systemctl restart mess-mcp
+   ```
+
+Keep Funnel running; the Worker depends on it. Cloudflare terminates TLS, so it can see traffic to the server, including the dining keys pasted on the sign-in page. Changing `PUBLIC_URL` invalidates existing tokens (they are bound to `PUBLIC_URL/mcp`), so everyone has to remove the connector and add the new URL. Keep `MCP_SECRET` the same.
 
 ## 5. Check it from outside
 
-From a device that isn't on your tailnet (e.g. your phone on mobile data). A tailnet machine resolves the name to its `100.x` address and skips Funnel entirely, so it proves nothing:
+From a device that isn't on your tailnet (e.g. your phone on mobile data). A tailnet machine resolves the `.ts.net` name to its `100.x` address and skips Funnel entirely, so it proves nothing. Use your `PUBLIC_URL`:
 
 ```bash
-curl -s https://your-machine.your-tailnet.ts.net/.well-known/oauth-protected-resource/mcp
+curl -s https://your-public-url/.well-known/oauth-protected-resource/mcp
 ```
 
-Then add `https://your-machine.your-tailnet.ts.net/mcp` as a custom connector in claude.ai and connect.
+The `resource` in the reply must be `PUBLIC_URL/mcp`. Then add `PUBLIC_URL/mcp` as a custom connector in claude.ai and connect.
 
 ## Updating
 
@@ -88,6 +108,7 @@ sudo systemctl restart mess-mcp
 
 ## Troubleshooting
 
-- **claude.ai says "Couldn't reach the MCP server":** run the step 5 check from outside your network. If it fails, the problem is the tunnel or Funnel, not the app.
-- **`Host ... is not allowed` (403):** the client used a hostname other than `PUBLIC_URL`'s. Add it to `ALLOWED_HOSTS`.
+- **claude.ai says "Couldn't reach the MCP server":** run the step 5 check from outside your network. If it fails, the problem is Funnel or the Worker, not the app.
+- **`Host ... is not allowed` (403):** the client used a hostname other than `PUBLIC_URL`'s. Add it to `ALLOWED_HOSTS`. Behind the Worker this means the `.ts.net` host is missing from it.
+- **Sign-in sends you to the `.ts.net` address:** `PUBLIC_URL` still has the Funnel URL. Set it to your domain and restart.
 - **Sign-in page says it couldn't reach the mess portal:** the machine has lost campus network access (check with the `curl` from "What you need").
