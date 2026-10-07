@@ -20,7 +20,12 @@ npm run typecheck
 npm test             # build, then the end-to-end suite in test/ (mock portal, no real key needed)
 npm start            # stdio, needs MESS_API_KEY
 npm run start:http   # HTTP on 127.0.0.1:3000/mcp, needs PUBLIC_URL and MCP_SECRET
+
+# one test case (the suite runs dist/, so build first)
+npm run build && node --test --test-name-pattern="token endpoint" test/e2e.test.mjs
 ```
+
+There is no linter; `typecheck` is the static check. The e2e suite binds port 3999 and runs its cases in order against one server, so a case may depend on state left by earlier ones (e.g. the revocation case flips the mock portal to reject the key). All HTTP env vars are documented in `.env.example`.
 
 `npm test` runs `test/e2e.test.mjs`: it starts `dist/http.js` against a mock portal and drives OAuth discovery, the sign-in page (with a browser-style `Origin: null`), token rotation, MCP calls and portal key revocation. Add a case there when you change anything in `auth/` or `http.ts`. To smoke-test stdio, pipe JSON-RPC (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`) into `node dist/stdio.js`. For HTTP, run with `PUBLIC_URL=http://localhost:3000 MCP_SECRET=$(openssl rand -base64 32)` and drive the OAuth flow with `npx @modelcontextprotocol/inspector`. Setting `MESS_API_URL` to a local mock portal lets you test sign-in without a real key.
 
