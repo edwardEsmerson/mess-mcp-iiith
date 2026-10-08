@@ -146,6 +146,9 @@ test("authorize page: rendering, validation and errors", async () => {
   assert.ok(auth.request);
   assert.ok(auth.html.includes("E2E &lt;b&gt;Client&lt;/b&gt;"), "client name is escaped");
   assert.match(auth.res.headers.get("content-security-policy"), /form-action 'self' http:\/\/127\.0\.0\.1:7777/);
+  const font = await fetch(`${BASE}/authorize/font.woff2`);
+  assert.equal(font.status, 200, "the page's font is served from this origin");
+  assert.equal(font.headers.get("content-type"), "font/woff2");
 
   const wrongPath = await fetch(`${BASE}/authorize?` + new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: "http://127.0.0.1:7777/other", code_challenge: "x", code_challenge_method: "S256" }));
   assert.equal(wrongPath.status, 400, "unregistered redirect gets an error page, not a redirect");
@@ -216,6 +219,8 @@ test("MCP calls use the stored key; bad tokens and foreign origins are refused",
 
   const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.equal(list.json.result.tools.length, 30);
+  const schemas = JSON.stringify(list.json.result.tools.map((t) => t.inputSchema));
+  assert.doesNotMatch(schemas, /\$schema|9007199254740991/, "tool schemas carry no zod noise");
 
   const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_user_info", arguments: {} } });
   assert.match(call.json.result.content[0].text, /Test Student/);
@@ -251,5 +256,5 @@ test("client metadata documents: Claude Code's published document resolves", asy
   if (!online) return t.skip("claude.ai is not reachable from here");
   const auth = await startAuthorization(document, "http://localhost:51234/callback");
   assert.equal(auth.res.status, 200);
-  assert.match(auth.html, /<strong>Claude Code<\/strong> wants/);
+  assert.match(auth.html, /<h1>Claude Code wants/);
 });
