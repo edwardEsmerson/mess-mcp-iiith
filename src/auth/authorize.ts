@@ -4,12 +4,14 @@
 // The validated request travels from GET to POST inside a signed, expiring blob, so the
 // POST handler never trusts form fields it didn't produce itself.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import express, { Router, type Request, type Response } from "express";
 import { isLoopbackHost, redirectUriAllowed, type CompositeClientResolver } from "./clients.js";
 import type { Signer } from "./crypto.js";
 import type { DiningKeyValidator, GrantService } from "./grants.js";
 import type { Clock, OAuthClient } from "./model.js";
-import { renderConsentPage, renderErrorPage } from "./pages.js";
+import { FONT_PATH, renderConsentPage, renderErrorPage } from "./pages.js";
 import { sameResource, type TokenService } from "./tokens.js";
 
 export interface AuthorizeDeps {
@@ -22,6 +24,10 @@ export interface AuthorizeDeps {
   signer: Signer;
   clock: Clock;
 }
+
+const FONT = readFileSync(
+  fileURLToPath(import.meta.resolve("@fontsource-variable/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-wght-normal.woff2")),
+);
 
 interface PendingAuthorization {
   clientId: string;
@@ -36,6 +42,10 @@ const PENDING_LIFETIME_MS = 15 * 60 * 1000;
 
 export function authorizeRouter(deps: AuthorizeDeps): Router {
   const router = Router();
+
+  router.get(FONT_PATH, (_req, res) => {
+    res.set("Cache-Control", "public, max-age=31536000, immutable").type("font/woff2").send(FONT);
+  });
 
   router.get("/authorize", async (req, res) => {
     const q = stringParams(req.query);
@@ -115,7 +125,7 @@ function securityHeaders(res: Response, redirect?: URL) {
   // form-action must allow the redirect target too, or browsers block the post-submit redirect
   const formAction = ["'self'", redirect?.origin].filter(Boolean).join(" ");
   res.set({
-    "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
+    "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
