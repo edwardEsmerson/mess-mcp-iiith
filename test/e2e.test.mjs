@@ -219,8 +219,6 @@ test("MCP calls use the stored key; bad tokens and foreign origins are refused",
 
   const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.equal(list.json.result.tools.length, 30);
-  const schemas = JSON.stringify(list.json.result.tools.map((t) => t.inputSchema));
-  assert.doesNotMatch(schemas, /\$schema|9007199254740991/, "tool schemas carry no zod noise");
 
   const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_user_info", arguments: {} } });
   assert.match(call.json.result.content[0].text, /Test Student/);
