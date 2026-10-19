@@ -294,16 +294,26 @@ function unwrap(response: unknown): unknown {
   return response && typeof response === "object" && "data" in response ? response.data : response;
 }
 
-export function registerTools(server: McpServer, api: MessApi) {
+/** Told about each tool call once it finishes, with what it threw if it failed (used for metrics). */
+export type ToolCallObserver = (tool: string, durationMs: number, error?: unknown) => void;
+
+export function registerTools(server: McpServer, api: MessApi, onCall?: ToolCallObserver) {
   for (const [name, def] of Object.entries(tools) as [string, Tool<z.ZodRawShape>][]) {
     server.registerTool(
       name,
       { title: def.title, description: def.description, inputSchema: compactJsonSchema(z.object(def.input ?? {})), annotations: def.annotations },
       async (args) => {
-        const result = unwrap(await def.run(api, args));
-        // Write endpoints often reply 204 No Content
-        const empty = result === undefined || (typeof result === "object" && result !== null && Object.keys(result).length === 0);
-        return { content: [{ type: "text" as const, text: empty ? "Done." : JSON.stringify(result) }] };
+        const started = performance.now();
+        try {
+          const result = unwrap(await def.run(api, args));
+          onCall?.(name, performance.now() - started);
+          // Write endpoints often reply 204 No Content
+          const empty = result === undefined || (typeof result === "object" && result !== null && Object.keys(result).length === 0);
+          return { content: [{ type: "text" as const, text: empty ? "Done." : JSON.stringify(result) }] };
+        } catch (error) {
+          onCall?.(name, performance.now() - started, error);
+          throw error;
+        }
       },
     );
   }

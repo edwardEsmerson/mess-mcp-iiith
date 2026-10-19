@@ -52,6 +52,13 @@ src/
     endpoints.ts     /token, /revoke, /register, AS metadata
     pages.ts         HTML rendering only
     revoke-on-unauthorized.ts   MessApi decorator: portal 401 revokes the grant
+  metrics/           opt-in usage metrics (METRICS_TOKEN): /metrics for Prometheus, /dashboard as HTML
+    model.ts         ToolOutcome, DailyCount, MetricsStore interface
+    recorder.ts      MetricsRecorder: in-memory Prometheus counters + buffered daily totals
+    sqlite.ts        daily totals and per-day active grant IDs
+    prometheus.ts    tiny counter/histogram registry and text exposition
+    dashboard.ts     HTML rendering only (no JavaScript; CSS charts with table views)
+    router.ts        /metrics, /dashboard, token check, request counting
 deploy/mess-mcp.service      systemd unit (see docs/hosting.md)
 deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to the Funnel URL
 ```
@@ -70,6 +77,7 @@ deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to
 ## Security
 
 - Never log API keys, tokens, `Authorization` headers or whole request objects.
+- Metrics hold aggregates only: never put user-specific values (keys, tokens, names, roll numbers, tool arguments or results) in a metric or label. Keep label values bounded (tool names, outcomes, known routes).
 - Keep the SDK's Host and Origin validation (`createMcpExpressApp` with `allowedHosts`/`allowedOrigins`) on the HTTP path.
 - `/mcp` accepts only tokens this server issued for `PUBLIC_URL/mcp` (spec: MUST NOT accept other tokens). Raw dining keys belong to stdio mode.
 - Store only SHA-256 hashes of codes and tokens; dining keys only sealed with `SecretBox`.

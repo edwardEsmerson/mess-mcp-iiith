@@ -34,6 +34,12 @@ export class RegisteredClientResolver implements ClientResolver {
   }
 }
 
+/** What to call a client on pages and dashboards. Metadata-document clients without a name go by their host. */
+export function displayName(client: Pick<OAuthClient, "clientId" | "clientName">): string {
+  if (client.clientName) return client.clientName;
+  return client.clientId.startsWith("https://") ? new URL(client.clientId).host : "An unnamed app";
+}
+
 export interface JsonFetcher {
   fetchJson(url: URL): Promise<unknown>;
 }

@@ -7,10 +7,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { Router, type Request, type Response } from "express";
-import { isLoopbackHost, redirectUriAllowed, type CompositeClientResolver } from "./clients.js";
+import { displayName, isLoopbackHost, redirectUriAllowed, type CompositeClientResolver } from "./clients.js";
 import type { Signer } from "./crypto.js";
 import type { DiningKeyValidator, GrantService } from "./grants.js";
-import type { Clock, OAuthClient } from "./model.js";
+import type { AuthEvents, Clock } from "./model.js";
 import { FONT_PATH, renderConsentPage, renderErrorPage } from "./pages.js";
 import { sameResource, type TokenService } from "./tokens.js";
 
@@ -23,6 +23,7 @@ export interface AuthorizeDeps {
   keyValidator: DiningKeyValidator;
   signer: Signer;
   clock: Clock;
+  events: AuthEvents;
 }
 
 const FONT = readFileSync(
@@ -81,21 +82,27 @@ export function authorizeRouter(deps: AuthorizeDeps): Router {
     if (!pending || pending.expiresAt < deps.clock()) return showError(res, "This page has expired.");
 
     const back = (params: Record<string, string | undefined>) => redirectWithParams(res, pending.redirectUri, { ...params, state: pending.state, iss: deps.issuer });
-    if (body.action !== "approve") return back({ error: "access_denied", error_description: "The user cancelled" });
+    if (body.action !== "approve") {
+      deps.events.signIn("cancelled");
+      return back({ error: "access_denied", error_description: "The user cancelled" });
+    }
 
     const diningKey = body.dining_key?.trim();
     if (!diningKey) return showConsent(res, pending, body.request!, "Paste your dining auth key.");
 
     try {
       if ((await deps.keyValidator.check(diningKey)) === "rejected") {
+        deps.events.signIn("rejected_key");
         return showConsent(res, pending, body.request!, "The mess portal didn't accept that key. Check you copied all of it, or create a new one.");
       }
     } catch {
+      deps.events.signIn("portal_unreachable");
       return showConsent(res, pending, body.request!, "Couldn't reach the mess portal to check your key. Try again in a minute.");
     }
 
     const grant = deps.grants.create({ clientId: pending.clientId, resource: deps.resource, scopes: [], diningKey });
     const code = deps.tokens.issueCode(grant, pending.redirectUri, pending.codeChallenge);
+    deps.events.signIn("connected");
     back({ code });
   });
 
@@ -151,11 +158,6 @@ function verifyPending(signer: Signer, signed: string): PendingAuthorization | u
   } catch {
     return undefined;
   }
-}
-
-function displayName(client: OAuthClient): string {
-  if (client.clientName) return client.clientName;
-  return client.clientId.startsWith("https://") ? new URL(client.clientId).host : "An unnamed app";
 }
 
 /** Keeps only single string values; repeated parameters are dropped as invalid. */

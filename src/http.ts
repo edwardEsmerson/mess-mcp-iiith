@@ -9,10 +9,14 @@ import { hostHeaderValidation, mcpAuthMetadataRouter, originValidation, requireB
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { MessApiClient, type MessApi } from "./api/client.js";
 import { createAuthorizationServer } from "./auth/index.js";
+import { FONT_PATH } from "./auth/pages.js";
 import { RevokeOnUnauthorized } from "./auth/revoke-on-unauthorized.js";
 import { openDatabase } from "./auth/sqlite.js";
 import { loadHttpConfig } from "./config.js";
-import { createServer, SERVER_NAME } from "./server.js";
+import { MetricsRecorder } from "./metrics/recorder.js";
+import { measureRequests, metricsRouter } from "./metrics/router.js";
+import { SqliteMetricsStore } from "./metrics/sqlite.js";
+import { createServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
 
 const DOCS_URL = "https://github.com/edwardEsmerson/mess-mcp-iiith#readme";
 
@@ -25,6 +29,9 @@ try {
 }
 
 const db = openDatabase(config.databasePath);
+// Metrics are opt-in: without METRICS_TOKEN nothing is recorded and /metrics, /dashboard don't exist
+const metrics = config.metricsToken ? new MetricsRecorder(new SqliteMetricsStore(db)) : undefined;
+
 const auth = createAuthorizationServer({
   issuer: config.publicOrigin,
   resource: config.resourceUrl.href,
@@ -32,21 +39,35 @@ const auth = createAuthorizationServer({
   db,
   apiFor: (key) => new MessApiClient(key),
   documentation: DOCS_URL,
+  events: metrics,
 });
 
-// A user's portal access for one request, built from the grant their token points to
-function apiFor(authInfo: AuthInfo | undefined): MessApi {
+function grantIdOf(authInfo: AuthInfo | undefined): string | undefined {
   const grantId = authInfo?.extra?.grantId;
-  const key = typeof grantId === "string" ? auth.grants.diningKeyFor(grantId) : undefined;
-  if (!key) throw new Error("No dining key for this token. Reconnect this app.");
-  return new RevokeOnUnauthorized(new MessApiClient(key), () => auth.grants.revoke(grantId as string));
+  return typeof grantId === "string" ? grantId : undefined;
+}
+
+// A user's portal access for one request, built from the grant their token points to
+function apiFor(grantId: string | undefined): MessApi {
+  const key = grantId ? auth.grants.diningKeyFor(grantId) : undefined;
+  if (!grantId || !key) throw new Error("No dining key for this token. Reconnect this app.");
+  return new RevokeOnUnauthorized(new MessApiClient(key), () => {
+    auth.grants.revoke(grantId);
+    metrics?.grantRevoked();
+  });
 }
 
 const mcp = toNodeHandler(
-  createMcpHandler(({ authInfo }) => createServer(apiFor(authInfo)), {
-    // Never log request objects or headers: they carry tokens
-    onerror: (error) => console.error("MCP error:", error.message),
-  }),
+  createMcpHandler(
+    ({ authInfo }) => {
+      const grantId = grantIdOf(authInfo);
+      return createServer(apiFor(grantId), metrics && ((tool, ms, error) => metrics.toolCall(tool, ms, error, grantId)));
+    },
+    {
+      // Never log request objects or headers: they carry tokens
+      onerror: (error) => console.error("MCP error:", error.message),
+    },
+  ),
 );
 
 // Host validation (DNS rebinding protection) applies everywhere. Origin validation applies to /mcp only:
@@ -54,6 +75,23 @@ const mcp = toNodeHandler(
 // and that form is already protected by its signed request.
 const app = express();
 app.use(hostHeaderValidation(config.allowedHosts));
+if (metrics) {
+  app.use(
+    measureRequests(metrics, [
+      "/mcp",
+      "/authorize",
+      FONT_PATH,
+      "/token",
+      "/revoke",
+      "/register",
+      "/healthz",
+      "/metrics",
+      "/dashboard",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-protected-resource/mcp",
+    ]),
+  );
+}
 app.use(express.json());
 app.set("trust proxy", config.trustProxy);
 
@@ -71,6 +109,17 @@ app.use(
   }),
 );
 app.use(auth.router);
+if (config.metricsToken && metrics) {
+  app.use(
+    metricsRouter({
+      token: config.metricsToken,
+      recorder: metrics,
+      connections: auth.connections,
+      version: SERVER_VERSION,
+      host: new URL(config.publicOrigin).host,
+    }),
+  );
+}
 
 app.all(
   "/mcp",
@@ -83,7 +132,28 @@ app.all(
   (req, res) => mcp(req, res, req.body),
 );
 
-setInterval(() => auth.housekeeping.deleteExpired(Date.now()), 60 * 60 * 1000).unref();
+setInterval(() => {
+  auth.housekeeping.deleteExpired(Date.now());
+  metrics?.prune();
+}, 60 * 60 * 1000).unref();
+
+if (metrics) {
+  const flush = () => {
+    try {
+      metrics.flush();
+    } catch (error) {
+      console.error("Couldn't save metrics:", error instanceof Error ? error.message : error);
+    }
+  };
+  setInterval(flush, 60 * 1000).unref();
+  // Save the last minute's counts when systemd stops the service
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => {
+      flush();
+      process.exit(0);
+    });
+  }
+}
 
 app.listen(config.port, config.host, (error?: Error) => {
   if (error) {

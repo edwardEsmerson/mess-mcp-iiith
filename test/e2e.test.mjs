@@ -19,6 +19,7 @@ const REDIRECT = "http://127.0.0.1:7777/callback";
 // Browsers submit the sign-in form with `Origin: null` because the page sets no-referrer
 const FORM = { "content-type": "application/x-www-form-urlencoded", origin: "null" };
 const GOOD_KEY = "good-key";
+const METRICS_TOKEN = randomBytes(24).toString("hex");
 
 let portal;
 let portalKeyRevoked = false;
@@ -42,6 +43,7 @@ before(async () => {
       PORT: String(PORT),
       MCP_SECRET: randomBytes(32).toString("base64"),
       DATA_DIR: dataDir,
+      METRICS_TOKEN,
       MESS_API_URL: `http://127.0.0.1:${portal.address().port}`,
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -241,6 +243,37 @@ test("a key revoked on the portal ends the grant so the client re-authenticates"
   } finally {
     portalKeyRevoked = false;
   }
+});
+
+test("metrics and dashboard: token required, counts what earlier cases did", async () => {
+  const basic = (password) => ({ authorization: "Basic " + Buffer.from(`admin:${password}`).toString("base64") });
+
+  const anonymous = await fetch(`${BASE}/metrics`);
+  assert.equal(anonymous.status, 401);
+  assert.match(anonymous.headers.get("www-authenticate"), /^Basic realm=/, "browsers get a password prompt");
+  assert.equal((await fetch(`${BASE}/metrics`, { headers: { authorization: "Bearer wrong" } })).status, 401);
+  assert.equal((await fetch(`${BASE}/dashboard`, { headers: basic("wrong") })).status, 401);
+
+  const res = await fetch(`${BASE}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } });
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_user_info",outcome="ok"\} 1$/m);
+  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_user_info",outcome="portal_rejected"\} 1$/m, "the revoked-key call");
+  assert.match(text, /^mess_mcp_grants_revoked_total\{reason="portal_key_rejected"\} 1$/m);
+  assert.match(text, /^mess_mcp_sign_ins_total\{outcome="rejected_key"\} 1$/m);
+  assert.match(text, /^mess_mcp_sign_ins_total\{outcome="cancelled"\} 1$/m);
+  assert.match(text, /^mess_mcp_tool_call_duration_seconds_count\{tool="get_user_info"\} 2$/m);
+  assert.match(text, /^mess_mcp_active_users\{window="1d"\} 2$/m, "both grants that called a tool");
+  assert.match(text, /^mess_mcp_connections\{app="E2E <b>Client<\/b>"\} \d+$/m, "grouped by app name, not per-registration client ID");
+  assert.match(text, /^mess_mcp_http_requests_total\{route="\/token",method="POST",status="200"\} \d+$/m);
+  assert.doesNotMatch(text, /mmcp_|good-key|Test Student/, "no tokens, keys or portal data");
+
+  const page = await fetch(`${BASE}/dashboard?days=7`, { headers: basic(METRICS_TOKEN) });
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
+  const html = await page.text();
+  assert.match(html, /<code>get_user_info<\/code><\/td><td class="n">2<\/td>/, "daily totals were saved and read back");
+  assert.match(html, /aria-current="page">7 days/);
 });
 
 test("client metadata documents: private addresses are refused", async () => {
