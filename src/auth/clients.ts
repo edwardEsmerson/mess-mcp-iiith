@@ -104,9 +104,12 @@ function parseClientMetadata(document: unknown, clientId: string): OAuthClient |
   if (doc.client_id !== clientId) return undefined;
   const redirectUris = doc.redirect_uris;
   if (!Array.isArray(redirectUris) || redirectUris.length === 0 || !redirectUris.every(isAcceptableRedirectUri)) return undefined;
-  // We only issue tokens to public clients, so a document asking for a secret is not one of ours
+  // We only issue tokens to public clients, so the client must be able to use "none". ChatGPT prefers
+  // private_key_jwt but lists "none" among its supported methods, and picks from the intersection with ours.
   const authMethod = doc.token_endpoint_auth_method;
-  if (authMethod !== undefined && authMethod !== "none") return undefined;
+  const supported = doc.token_endpoint_auth_methods_supported;
+  const canUseNone = authMethod === undefined || authMethod === "none" || (Array.isArray(supported) && supported.includes("none"));
+  if (!canUseNone) return undefined;
   return {
     clientId,
     clientName: typeof doc.client_name === "string" ? doc.client_name.slice(0, 100) : undefined,
