@@ -19,6 +19,8 @@ export interface HttpConfig {
   trustProxy: string;
   /** True only for http://localhost development setups. */
   insecureLocalIssuer: boolean;
+  /** Enables /metrics and /dashboard when set. */
+  metricsToken?: string;
 }
 
 export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig {
@@ -27,6 +29,9 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
   const insecureLocalIssuer = publicUrl.protocol === "http:" && isLoopbackHost(publicUrl.hostname);
   if (publicUrl.protocol !== "https:" && !insecureLocalIssuer) throw new Error("PUBLIC_URL must use https:// (http:// is only allowed for localhost).");
   if (publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash) throw new Error("PUBLIC_URL must be an origin only, e.g. https://example.com");
+
+  const metricsToken = env.METRICS_TOKEN || undefined;
+  if (metricsToken && metricsToken.length < 16) throw new Error("METRICS_TOKEN must be at least 16 characters. Generate one with: openssl rand -hex 24");
 
   const publicOrigin = publicUrl.origin;
   const dataDir = env.STATE_DIRECTORY?.split(":")[0] || env.DATA_DIR || "./data";
@@ -43,6 +48,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
     databasePath: join(dataDir, "mess-mcp.db"),
     trustProxy: env.TRUST_PROXY || "loopback",
     insecureLocalIssuer,
+    metricsToken,
   };
 }
 

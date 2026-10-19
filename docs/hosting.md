@@ -96,6 +96,33 @@ curl -s https://your-public-url/.well-known/oauth-protected-resource/mcp
 
 The `resource` in the reply must be `PUBLIC_URL/mcp`. Then add `PUBLIC_URL/mcp` as a custom connector in claude.ai and connect.
 
+## 6. Metrics dashboard (optional)
+
+The server can count what it does and show it at `PUBLIC_URL/dashboard`: active users per day, tool calls and failures per tool, sign-ins, which apps are connected, and whether the mess portal is reachable. It's off until you set a token:
+
+```bash
+# in /etc/mess-mcp.env
+METRICS_TOKEN=<output of: openssl rand -hex 24>
+```
+```bash
+sudo systemctl restart mess-mcp
+```
+
+Open `PUBLIC_URL/dashboard`; the browser asks for a username and password. Any username works, the password is the token. Use `?days=7`, `30` or `90` for the time range.
+
+Only totals are stored, in the same SQLite file: counts per day, tool and outcome, plus which connection IDs made a call on which day (to count active users; deleted after 90 days). No keys, tokens, names or meal data. Daily totals are written once a minute and on shutdown.
+
+The same numbers are at `PUBLIC_URL/metrics` in Prometheus format, for Grafana or alerting. Point a scraper at the local port so traffic stays on the machine:
+
+```yaml
+scrape_configs:
+  - job_name: mess-mcp
+    static_configs: [{ targets: ["127.0.0.1:3000"] }]
+    authorization: { credentials_file: /etc/prometheus/mess-mcp-token }
+```
+
+Prometheus counters restart from zero when the service restarts (Prometheus handles that); the dashboard's daily totals don't.
+
 ## Updating
 
 ```bash

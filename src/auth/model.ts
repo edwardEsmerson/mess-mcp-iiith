@@ -63,5 +63,25 @@ export interface Housekeeping {
   deleteExpired(now: number): void;
 }
 
+export interface ConnectionCount {
+  clientId: string;
+  clientName?: string;
+  count: number;
+}
+
+export interface ConnectionStats {
+  /** Grants per client that can still be used: they hold an unused, unexpired refresh token. */
+  connectedByClient(now: number): ConnectionCount[];
+}
+
+export type SignInOutcome = "connected" | "rejected_key" | "portal_unreachable" | "cancelled";
+
+/** Told what happened on the sign-in page, e.g. to count it. Must not throw. */
+export interface AuthEvents {
+  signIn(outcome: SignInOutcome): void;
+}
+
+export const noAuthEvents: AuthEvents = { signIn() {} };
+
 export type Clock = () => number;
 export const systemClock: Clock = () => Date.now();

@@ -8,6 +8,8 @@ import type {
   AuthorizationCode,
   ClientRepository,
   CodeRepository,
+  ConnectionCount,
+  ConnectionStats,
   Grant,
   GrantRepository,
   Housekeeping,
@@ -170,5 +172,26 @@ export class SqliteHousekeeping implements Housekeeping {
            AND NOT EXISTS (SELECT 1 FROM codes WHERE codes.grant_id = grants.id)`,
       )
       .run(now - 60 * 60 * 1000);
+  }
+}
+
+export class SqliteConnectionStats implements ConnectionStats {
+  constructor(private readonly db: DatabaseSync) {}
+
+  connectedByClient(now: number): ConnectionCount[] {
+    const rows = this.db
+      .prepare(
+        `SELECT g.client_id, c.client_name, COUNT(DISTINCT g.id) AS n
+           FROM grants g
+           JOIN tokens t ON t.grant_id = g.id AND t.kind = 'refresh' AND t.used_at IS NULL AND t.expires_at > ?
+           LEFT JOIN clients c ON c.client_id = g.client_id
+          GROUP BY g.client_id`,
+      )
+      .all(now) as Row[];
+    return rows.map((row) => ({
+      clientId: row.client_id as string,
+      clientName: (row.client_name as string | null) ?? undefined,
+      count: row.n as number,
+    }));
   }
 }

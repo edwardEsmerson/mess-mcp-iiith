@@ -9,8 +9,8 @@ import { CompositeClientResolver, MetadataDocumentClientResolver, PublicHttpsJso
 import { AesGcmBox, deriveKey, HmacSigner } from "./crypto.js";
 import { authorizationServerMetadata, registrationRouter, tokenRouter } from "./endpoints.js";
 import { GrantService, PortalKeyValidator } from "./grants.js";
-import { systemClock, type Clock } from "./model.js";
-import { SqliteClientRepository, SqliteCodeRepository, SqliteGrantRepository, SqliteHousekeeping, SqliteTokenRepository } from "./sqlite.js";
+import { noAuthEvents, systemClock, type AuthEvents, type Clock } from "./model.js";
+import { SqliteClientRepository, SqliteCodeRepository, SqliteConnectionStats, SqliteGrantRepository, SqliteHousekeeping, SqliteTokenRepository } from "./sqlite.js";
 import { TokenService } from "./tokens.js";
 
 export interface AuthorizationServerOptions {
@@ -24,6 +24,8 @@ export interface AuthorizationServerOptions {
   apiFor: (diningKey: string) => MessApi;
   documentation?: string;
   clock?: Clock;
+  /** Sign-in outcomes go here (metrics). */
+  events?: AuthEvents;
 }
 
 export function createAuthorizationServer(options: AuthorizationServerOptions) {
@@ -54,6 +56,7 @@ export function createAuthorizationServer(options: AuthorizationServerOptions) {
       keyValidator: new PortalKeyValidator(options.apiFor),
       signer: new HmacSigner(deriveKey(options.masterSecret, "authorize-request")),
       clock,
+      events: options.events ?? noAuthEvents,
     }),
   );
   router.use(tokenRouter(tokens));
@@ -66,5 +69,6 @@ export function createAuthorizationServer(options: AuthorizationServerOptions) {
     grants,
     metadata: authorizationServerMetadata(options.issuer, options.documentation),
     housekeeping: new SqliteHousekeeping(options.db),
+    connections: new SqliteConnectionStats(options.db),
   };
 }
