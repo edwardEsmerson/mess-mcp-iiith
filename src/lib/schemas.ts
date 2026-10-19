@@ -11,6 +11,31 @@ export const month = z.number().int().min(1).max(12).describe("Month, 1-12");
 export const year = z.number().int().min(2000).max(2100).describe("Year, e.g. 2026");
 export const messId = z.string().min(1).describe("Mess ID from get_mess_info, e.g. yuktahar or kadamba-veg");
 
+// zod's JSON Schema has noise a model gains nothing from, yet every tools/list sends it:
+// a $schema URL on each tool and ±2^53 bounds on each .int(). Drop both from what clients see;
+// validation is still zod's.
+export function compactJsonSchema<T extends z.ZodType>(schema: T): T {
+  const std = schema["~standard"];
+  schema["~standard"] = {
+    ...std,
+    jsonSchema: { ...std.jsonSchema, input: (options) => stripSchemaNoise(std.jsonSchema.input(options)) as Record<string, unknown> },
+  };
+  return schema;
+}
+
+function stripSchemaNoise(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripSchemaNoise);
+  if (typeof node !== "object" || node === null) return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "$schema") continue;
+    if (key === "maximum" && value === Number.MAX_SAFE_INTEGER) continue;
+    if (key === "minimum" && value === Number.MIN_SAFE_INTEGER) continue;
+    out[key] = stripSchemaNoise(value);
+  }
+  return out;
+}
+
 export const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: true };
 export const WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
 export const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };

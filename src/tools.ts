@@ -5,7 +5,7 @@
 import { z } from "zod";
 import type { McpServer, ToolAnnotations } from "@modelcontextprotocol/server";
 import type { MessApi } from "./api/client.js";
-import { DESTRUCTIVE, READ_ONLY, WRITE, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
+import { DESTRUCTIVE, READ_ONLY, WRITE, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
 
 interface Tool<S extends z.ZodRawShape> {
   title: string;
@@ -298,7 +298,7 @@ export function registerTools(server: McpServer, api: MessApi) {
   for (const [name, def] of Object.entries(tools) as [string, Tool<z.ZodRawShape>][]) {
     server.registerTool(
       name,
-      { title: def.title, description: def.description, inputSchema: z.object(def.input ?? {}), annotations: def.annotations },
+      { title: def.title, description: def.description, inputSchema: compactJsonSchema(z.object(def.input ?? {})), annotations: def.annotations },
       async (args) => {
         const result = unwrap(await def.run(api, args));
         // Write endpoints often reply 204 No Content
