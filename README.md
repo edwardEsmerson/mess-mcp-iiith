@@ -7,7 +7,7 @@ An [MCP](https://modelcontextprotocol.io) server for the IIIT Hyderabad mess (di
 > "How much is my mess bill this month?"
 
 > [!NOTE]
-> Work in progress. Local (stdio) works today, and the hosted server supports OAuth sign-in so claude.ai, Claude Desktop and Claude Code can connect with just a URL. See [Roadmap](#roadmap).
+> Work in progress. The hosted server supports OAuth sign-in, so claude.ai, Claude Desktop and Claude Code can connect with just a URL. Local (stdio) works too. See [Roadmap](#roadmap).
 
 ## What it can do
 
@@ -25,44 +25,13 @@ Tools are annotated as read-only or destructive, so clients can ask before cance
 
 ## Requirements
 
-- **IIITH network or VPN.** The mess portal API is only reachable from campus. Whatever machine runs this server must be on the IIITH network.
+- **IIITH network or VPN, if you run the server yourself.** The mess portal API is only reachable from campus. Not needed for the hosted server.
 - **A mess portal API key.** For the hosted server you paste it into a sign-in page instead of a config file. To create one, go to [dining.iiit.ac.in](https://dining.iiit.ac.in) → Settings → Auth Keys → **Create**. Make a separate key just for this, so you can revoke it without affecting anything else. Treat it like a password: anyone with it can register, cancel and change meals on your account.
-- Node.js 22.13 or newer.
+- Node.js 22.13 or newer, if you run the server yourself.
 
 ## Setup
 
-```bash
-git clone https://github.com/edwardEsmerson/mess-mcp-iiith.git
-cd mess-mcp-iiith
-npm install
-npm run build
-```
-
-### Option 1: local (stdio)
-
-The client starts the server on your machine. Simplest if you're on campus and only use it yourself.
-
-**Claude Code**
-
-```bash
-claude mcp add mess -s user -e MESS_API_KEY=your-key -- node /path/to/mess-mcp-iiith/dist/stdio.js
-```
-
-**Claude Desktop, Cursor and others** (JSON config)
-
-```json
-{
-  "mcpServers": {
-    "mess": {
-      "command": "node",
-      "args": ["/path/to/mess-mcp-iiith/dist/stdio.js"],
-      "env": { "MESS_API_KEY": "your-key" }
-    }
-  }
-}
-```
-
-### Option 2: connect to a hosted server (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code)
+### Option 1: connect to a hosted server (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code)
 
 A public instance runs at **`https://iiith-mess-mcp.tech/mcp`** (or run your own, see [docs/hosting.md](docs/hosting.md)); the URL is all you need. The first time you connect, a page opens asking for your dining auth key. The server checks the key with the portal, stores it encrypted and gives your app its own token. You never put the key in a config file.
 
@@ -87,6 +56,37 @@ Then run `/mcp` in Claude Code and pick `mess` to sign in.
 ```
 
 If you revoke the key on the portal, the next request fails and your app asks you to sign in again. To disconnect, remove the connector in your app and delete the key on the portal.
+
+### Option 2: run it locally (stdio)
+
+The client starts the server on your machine, which must be on the IIITH network. Needs Node.js 22.13 or newer.
+
+```bash
+git clone https://github.com/edwardEsmerson/mess-mcp-iiith.git
+cd mess-mcp-iiith
+npm install
+npm run build
+```
+
+**Claude Code**
+
+```bash
+claude mcp add mess -s user -e MESS_API_KEY=your-key -- node /path/to/mess-mcp-iiith/dist/stdio.js
+```
+
+**Claude Desktop, Cursor and others** (JSON config)
+
+```json
+{
+  "mcpServers": {
+    "mess": {
+      "command": "node",
+      "args": ["/path/to/mess-mcp-iiith/dist/stdio.js"],
+      "env": { "MESS_API_KEY": "your-key" }
+    }
+  }
+}
+```
 
 ### Option 3: host it yourself
 
