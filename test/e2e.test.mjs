@@ -291,3 +291,13 @@ test("client metadata documents: Claude Code's published document resolves", asy
   assert.equal(auth.res.status, 200);
   assert.match(auth.html, /<h1>Claude Code wants/);
 });
+
+test("client metadata documents: ChatGPT's published document resolves", async (t) => {
+  // ChatGPT prefers private_key_jwt but also supports "none", which is all we accept
+  const document = "https://chatgpt.com/oauth/client.json";
+  const online = await fetch(document, { signal: AbortSignal.timeout(5000) }).then((r) => r.ok, () => false);
+  if (!online) return t.skip("chatgpt.com is not reachable from here");
+  const auth = await startAuthorization(document, "https://chatgpt.com/connector_platform_oauth_redirect");
+  assert.equal(auth.res.status, 200);
+  assert.match(auth.html, /<h1>ChatGPT wants/);
+});
