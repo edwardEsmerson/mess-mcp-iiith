@@ -10,6 +10,14 @@ export const SERVER_VERSION = "0.2.0";
 
 const INSTRUCTIONS = `Manages the user's meals on the IIIT Hyderabad mess (dining) portal.
 Dates are YYYY-MM-DD and "today" means today in IST. Mess IDs come from get_mess_info. Money is in paise (divide by 100 for rupees).
+
+How meals work:
+- Each meal (breakfast, lunch, snacks, dinner) on a date has at most one registration, at one mess. With no registration, the portal allocates a vegetarian meal at some mess.
+- To move a meal to another mess, call register_meal again with the new mess. It replaces the registration and uses no cancellation. Never cancel a meal just to change its mess.
+- cancel_meal is for not eating the meal at all: it isn't charged, but each user gets only a few cancellations per meal type per month.
+- skip_meal says you won't come; the meal is still charged and no cancellation is used.
+- Registering or changing mess closes a few days before the meal, cancelling closes later, skipping stays open until the day. Call get_deadlines for today's date and the exact cutoffs before changing anything.
+
 register_meal, register_extra and create_monthly_registration add charges to the user's bill, and cancel_meal uses up a limited monthly cancellation, so confirm these with the user unless they asked for that exact change.`;
 
 export function createServer(api: MessApi, onToolCall?: ToolCallObserver): McpServer {

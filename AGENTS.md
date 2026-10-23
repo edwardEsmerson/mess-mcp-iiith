@@ -87,6 +87,7 @@ deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to
 ## Constraints
 
 - The portal API is only reachable from the IIITH network or VPN. A hosted instance must run on campus; a normal cloud host can't reach it. Campus blocks outbound port 7844, so Cloudflare Tunnel doesn't work there: expose it with Tailscale Funnel (443) and, for a custom domain, the Worker in `deploy/cloudflare-worker/`.
+- The maintainer's live instance is described in `deploy/LOCAL.md` when that file exists (gitignored, machine-specific). Read it before touching the deployment.
 - The API is undocumented; endpoint shapes are known from use, not docs. When unsure what an endpoint returns, ask the user to run a read-only call rather than guessing.
 
 ## Roadmap
