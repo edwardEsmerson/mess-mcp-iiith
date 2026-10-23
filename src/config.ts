@@ -20,7 +20,7 @@ export interface HttpConfig {
   /** True only for http://localhost development setups. */
   insecureLocalIssuer: boolean;
   /** Enables /metrics and /dashboard when set. */
-  metricsToken?: string;
+  dashboardPassword?: string;
 }
 
 export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig {
@@ -30,8 +30,9 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
   if (publicUrl.protocol !== "https:" && !insecureLocalIssuer) throw new Error("PUBLIC_URL must use https:// (http:// is only allowed for localhost).");
   if (publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash) throw new Error("PUBLIC_URL must be an origin only, e.g. https://example.com");
 
-  const metricsToken = env.METRICS_TOKEN || undefined;
-  if (metricsToken && metricsToken.length < 16) throw new Error("METRICS_TOKEN must be at least 16 characters. Generate one with: openssl rand -hex 24");
+  // METRICS_TOKEN is the old name, still read so existing configs keep working
+  const dashboardPassword = env.DASHBOARD_PASSWORD || env.METRICS_TOKEN || undefined;
+  if (dashboardPassword && dashboardPassword.length < 10) throw new Error("DASHBOARD_PASSWORD must be at least 10 characters: the dashboard is on the public internet.");
 
   const publicOrigin = publicUrl.origin;
   const dataDir = env.STATE_DIRECTORY?.split(":")[0] || env.DATA_DIR || "./data";
@@ -48,7 +49,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
     databasePath: join(dataDir, "mess-mcp.db"),
     trustProxy: env.TRUST_PROXY || "loopback",
     insecureLocalIssuer,
-    metricsToken,
+    dashboardPassword,
   };
 }
 

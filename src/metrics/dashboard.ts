@@ -66,7 +66,10 @@ nav { display: flex; gap: 4px; }
 nav a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); text-decoration: none; font-weight: 650; font-size: 14px; }
 nav a:hover { border-color: var(--muted); }
 nav a[aria-current] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; }
+.controls button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--muted); font: 650 14px/1.5 var(--font); cursor: pointer; }
+.controls button:hover { border-color: var(--muted); color: var(--fg); }
+a:focus-visible, summary:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
 .tile { display: flex; flex-direction: column; gap: 2px; }
@@ -170,7 +173,10 @@ export function renderDashboard(d: DashboardData): string {
     <h1>IIITH Mess MCP</h1>
     <p>${escapeHtml(d.host)} · updated ${istTime(d.now)} IST · refreshes every ${REFRESH_SECONDS / 60} minutes</p>
   </div>
-  <nav aria-label="Time range">${WINDOWS.map((w) => `<a href="?days=${w}"${w === d.days ? ' aria-current="page"' : ""}>${w} days</a>`).join("")}</nav>
+  <div class="controls">
+    <nav aria-label="Time range">${WINDOWS.map((w) => `<a href="?days=${w}"${w === d.days ? ' aria-current="page"' : ""}>${w} days</a>`).join("")}</nav>
+    <form method="post" action="/dashboard/sign-out"><button type="submit">Sign out</button></form>
+  </div>
 </header>
 ${tiles}
 <section class="panel">${callChart}</section>

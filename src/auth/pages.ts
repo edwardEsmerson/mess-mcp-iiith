@@ -119,6 +119,26 @@ export function renderConsentPage(page: ConsentPage): string {
   );
 }
 
+/** The operator dashboard's sign-in form (see metrics/router.ts). Lives here to share the sign-in page's look. */
+export function renderDashboardSignIn(error?: string): string {
+  return layout(
+    "Sign in to the dashboard",
+    `
+<section>
+  <h1>Mess MCP dashboard</h1>
+  <p>Usage numbers for this server. Sign in with the <strong>DASHBOARD_PASSWORD</strong> set in the server's config.</p>
+</section>
+<form method="post" action="/dashboard">
+  <input type="text" name="username" value="admin" autocomplete="username" hidden>
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" autocomplete="current-password" autofocus required${error ? ` aria-invalid="true" aria-describedby="password_error"` : ""}>
+  ${error ? `<p class="error" id="password_error" role="alert">${escapeHtml(error)}</p>` : ""}
+  <div class="actions"><button type="submit" class="primary">Sign in</button></div>
+</form>
+<p class="fine">You stay signed in on this browser for 30 days, or until the password changes.</p>`,
+  );
+}
+
 export function renderErrorPage(message: string): string {
   return layout(
     "Can't connect",

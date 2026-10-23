@@ -19,7 +19,7 @@ const REDIRECT = "http://127.0.0.1:7777/callback";
 // Browsers submit the sign-in form with `Origin: null` because the page sets no-referrer
 const FORM = { "content-type": "application/x-www-form-urlencoded", origin: "null" };
 const GOOD_KEY = "good-key";
-const METRICS_TOKEN = randomBytes(24).toString("hex");
+const DASHBOARD_PASSWORD = "correct horse battery staple";
 // Real values seen on the portal: registering closes 4 days ahead, cancelling 2
 const PORTAL_CONFIG = {
   "/config/registration-window": 345600,
@@ -51,7 +51,7 @@ before(async () => {
       PORT: String(PORT),
       MCP_SECRET: randomBytes(32).toString("base64"),
       DATA_DIR: dataDir,
-      METRICS_TOKEN,
+      DASHBOARD_PASSWORD,
       MESS_API_URL: `http://127.0.0.1:${portal.address().port}`,
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -259,16 +259,13 @@ test("a key revoked on the portal ends the grant so the client re-authenticates"
   }
 });
 
-test("metrics and dashboard: token required, counts what earlier cases did", async () => {
-  const basic = (password) => ({ authorization: "Basic " + Buffer.from(`admin:${password}`).toString("base64") });
-
+test("metrics and dashboard: password required, counts what earlier cases did", async () => {
   const anonymous = await fetch(`${BASE}/metrics`);
   assert.equal(anonymous.status, 401);
-  assert.match(anonymous.headers.get("www-authenticate"), /^Basic realm=/, "browsers get a password prompt");
+  assert.match(anonymous.headers.get("www-authenticate"), /^Bearer /);
   assert.equal((await fetch(`${BASE}/metrics`, { headers: { authorization: "Bearer wrong" } })).status, 401);
-  assert.equal((await fetch(`${BASE}/dashboard`, { headers: basic("wrong") })).status, 401);
 
-  const res = await fetch(`${BASE}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } });
+  const res = await fetch(`${BASE}/metrics`, { headers: { authorization: `Bearer ${DASHBOARD_PASSWORD}` } });
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_user_info",outcome="ok"\} 1$/m);
@@ -282,12 +279,34 @@ test("metrics and dashboard: token required, counts what earlier cases did", asy
   assert.match(text, /^mess_mcp_http_requests_total\{route="\/token",method="POST",status="200"\} \d+$/m);
   assert.doesNotMatch(text, /mmcp_|good-key|Test Student/, "no tokens, keys or portal data");
 
-  const page = await fetch(`${BASE}/dashboard?days=7`, { headers: basic(METRICS_TOKEN) });
+  // Browsers get a sign-in form, not a password popup
+  const signInPage = await fetch(`${BASE}/dashboard`);
+  assert.equal(signInPage.status, 401);
+  assert.equal(signInPage.headers.get("www-authenticate"), null);
+  assert.match(await signInPage.text(), /<form method="post" action="\/dashboard">/);
+
+  const signIn = (password) => fetch(`${BASE}/dashboard`, { method: "POST", headers: FORM, body: new URLSearchParams({ password }), redirect: "manual" });
+  const wrong = await signIn("wrong");
+  assert.equal(wrong.status, 401);
+  assert.match(await wrong.text(), /role="alert">That password isn/);
+  const right = await signIn(DASHBOARD_PASSWORD);
+  assert.equal(right.status, 303);
+  const setCookie = right.headers.get("set-cookie");
+  assert.match(setCookie, /HttpOnly/i);
+  assert.match(setCookie, /SameSite=Strict/i);
+  const cookie = setCookie.split(";")[0];
+  assert.equal((await fetch(`${BASE}/dashboard`, { headers: { cookie: cookie.replace(/.$/, "x") } })).status, 401, "a tampered cookie is refused");
+
+  const page = await fetch(`${BASE}/dashboard?days=7`, { headers: { cookie } });
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
   const html = await page.text();
   assert.match(html, /<code>get_user_info<\/code><\/td><td class="n">2<\/td>/, "daily totals were saved and read back");
   assert.match(html, /aria-current="page">7 days/);
+
+  const signOut = await fetch(`${BASE}/dashboard/sign-out`, { method: "POST", headers: { ...FORM, cookie }, redirect: "manual" });
+  assert.equal(signOut.status, 303);
+  assert.match(signOut.headers.get("set-cookie"), /mess_mcp_dashboard=;/);
 });
 
 test("client metadata documents: private addresses are refused", async () => {
