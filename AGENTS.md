@@ -20,6 +20,7 @@ npm run typecheck
 npm test             # build, then the end-to-end suite in test/ (mock portal, no real key needed)
 npm start            # stdio, needs MESS_API_KEY
 npm run start:http   # HTTP on 127.0.0.1:3000/mcp, needs PUBLIC_URL and MCP_SECRET
+npm run deploy -- <ssh-host>   # test, bundle, install on a server with no npm, restart (scripts/deploy.sh)
 
 # one test case (the suite runs dist/, so build first)
 npm run build && node --test --test-name-pattern="token endpoint" test/e2e.test.mjs
@@ -52,13 +53,13 @@ src/
     endpoints.ts     /token, /revoke, /register, AS metadata
     pages.ts         HTML rendering only
     revoke-on-unauthorized.ts   MessApi decorator: portal 401 revokes the grant
-  metrics/           opt-in usage metrics (METRICS_TOKEN): /metrics for Prometheus, /dashboard as HTML
+  metrics/           opt-in usage metrics (DASHBOARD_PASSWORD): /metrics for Prometheus, /dashboard as HTML
     model.ts         ToolOutcome, DailyCount, MetricsStore interface
     recorder.ts      MetricsRecorder: in-memory Prometheus counters + buffered daily totals
     sqlite.ts        daily totals and per-day active grant IDs
     prometheus.ts    tiny counter/histogram registry and text exposition
     dashboard.ts     HTML rendering only (no JavaScript; CSS charts with table views)
-    router.ts        /metrics, /dashboard, token check, request counting
+    router.ts        /metrics, /dashboard, password sign-in and session cookie, request counting
 deploy/mess-mcp.service      systemd unit (see docs/hosting.md)
 deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to the Funnel URL
 ```

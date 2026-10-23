@@ -29,8 +29,8 @@ try {
 }
 
 const db = openDatabase(config.databasePath);
-// Metrics are opt-in: without METRICS_TOKEN nothing is recorded and /metrics, /dashboard don't exist
-const metrics = config.metricsToken ? new MetricsRecorder(new SqliteMetricsStore(db)) : undefined;
+// Metrics are opt-in: without DASHBOARD_PASSWORD nothing is recorded and /metrics, /dashboard don't exist
+const metrics = config.dashboardPassword ? new MetricsRecorder(new SqliteMetricsStore(db)) : undefined;
 
 const auth = createAuthorizationServer({
   issuer: config.publicOrigin,
@@ -109,14 +109,15 @@ app.use(
   }),
 );
 app.use(auth.router);
-if (config.metricsToken && metrics) {
+if (config.dashboardPassword && metrics) {
   app.use(
     metricsRouter({
-      token: config.metricsToken,
+      password: config.dashboardPassword,
       recorder: metrics,
       connections: auth.connections,
       version: SERVER_VERSION,
       host: new URL(config.publicOrigin).host,
+      secureCookie: config.publicOrigin.startsWith("https:"),
     }),
   );
 }
@@ -161,4 +162,5 @@ app.listen(config.port, config.host, (error?: Error) => {
     process.exit(1);
   }
   console.error(`${SERVER_NAME} listening on http://${config.host}:${config.port}/mcp (public: ${config.resourceUrl.href})`);
+  console.error(metrics ? `Dashboard: ${config.publicOrigin}/dashboard` : "Dashboard off. Set DASHBOARD_PASSWORD to turn it on.");
 });

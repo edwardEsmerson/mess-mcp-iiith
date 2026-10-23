@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/stdio.js",
     "start:http": "node dist/http.js",
-    "test": "npm run build && node --test \"test/**/*.test.mjs\""
+    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "deploy": "bash scripts/deploy.sh"
   },
   "engines": {
     "node": ">=22.13"
