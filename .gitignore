@@ -7,3 +7,5 @@ dist/
 .DS_Store
 data/
 .wrangler/
+# Machine-specific deployment notes
+deploy/LOCAL.md

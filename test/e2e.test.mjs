@@ -20,6 +20,13 @@ const REDIRECT = "http://127.0.0.1:7777/callback";
 const FORM = { "content-type": "application/x-www-form-urlencoded", origin: "null" };
 const GOOD_KEY = "good-key";
 const METRICS_TOKEN = randomBytes(24).toString("hex");
+// Real values seen on the portal: registering closes 4 days ahead, cancelling 2
+const PORTAL_CONFIG = {
+  "/config/registration-window": 345600,
+  "/config/cancellation-window": 172800,
+  "/config/extras-window": 86400,
+  "/config/registration-max-date": "2099-12-31",
+};
 
 let portal;
 let portalKeyRevoked = false;
@@ -30,7 +37,8 @@ before(async () => {
   portal = http.createServer((req, res) => {
     const ok = req.headers.authorization === GOOD_KEY && !portalKeyRevoked;
     res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
-    res.end(JSON.stringify(ok ? { data: { name: "Test Student" } } : { error: { message: "Please login to view this page." } }));
+    const data = PORTAL_CONFIG[new URL(req.url, "http://portal").pathname] ?? { name: "Test Student" };
+    res.end(JSON.stringify(ok ? { data } : { error: { message: "Please login to view this page." } }));
   });
   portal.listen(0, "127.0.0.1");
   await once(portal, "listening");
@@ -220,12 +228,18 @@ test("MCP calls use the stored key; bad tokens and foreign origins are refused",
   assert.equal(init.json.result.serverInfo.name, "mess-mcp-iiith");
 
   const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-  assert.equal(list.json.result.tools.length, 30);
+  assert.equal(list.json.result.tools.length, 31);
   const schemas = JSON.stringify(list.json.result.tools.map((t) => t.inputSchema));
   assert.doesNotMatch(schemas, /\$schema|9007199254740991/, "tool schemas carry no zod noise");
 
   const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_user_info", arguments: {} } });
   assert.match(call.json.result.content[0].text, /Test Student/);
+
+  const deadlines = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_deadlines", arguments: {} } });
+  const { today, register_or_change_mess, cancel_or_uncancel, add_extras } = JSON.parse(deadlines.json.result.content[0].text);
+  const daysAfterToday = (d) => (Date.parse(d) - Date.parse(today)) / 86400000;
+  assert.deepEqual([daysAfterToday(register_or_change_mess.from), daysAfterToday(cancel_or_uncancel.from), daysAfterToday(add_extras.from)], [4, 2, 1]);
+  assert.equal(register_or_change_mess.to, "2099-12-31");
 
   assert.equal((await mcp("not-a-real-token", { jsonrpc: "2.0", id: 1, method: "tools/list" })).res.status, 401);
   assert.equal((await mcp(tokens.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { origin: "https://evil.example" })).res.status, 403);
