@@ -5,7 +5,7 @@
 import { z } from "zod";
 import type { McpServer, ToolAnnotations } from "@modelcontextprotocol/server";
 import type { MessApi } from "./api/client.js";
-import { DESTRUCTIVE, READ_ONLY, WRITE, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
+import { DESTRUCTIVE, READ_ONLY, WRITE, addDays, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
 
 interface Tool<S extends z.ZodRawShape> {
   title: string;
@@ -107,9 +107,31 @@ const tools = {
     run: (api, { date }) => api.get("/config/meal-timings", { on: date }),
   }),
 
+  get_deadlines: tool({
+    title: "Get deadlines",
+    description:
+      "Today's date (IST) and the first meal date each action is still open for, worked out from the portal's windows the way dining.iiit.ac.in does: registering or changing mess (up to the last registrable date), cancelling or uncancelling, adding extras, and skipping. The portal has the final say.",
+    annotations: READ_ONLY,
+    run: async (api) => {
+      const [registration, cancellation, extras, lastDate] = await Promise.all(
+        ["/config/registration-window", "/config/cancellation-window", "/config/extras-window", "/config/registration-max-date"].map(async (path) => unwrap(await api.get(path))),
+      );
+      const today = todayIST();
+      // Windows are in seconds, but the portal compares whole dates
+      const after = (seconds: unknown) => addDays(today, Math.floor(Number(seconds) / 86400));
+      return {
+        today,
+        register_or_change_mess: { from: after(registration), to: lastDate },
+        cancel_or_uncancel: { from: after(cancellation) },
+        add_extras: { from: after(extras) },
+        skip: { from: today },
+      };
+    },
+  }),
+
   get_registration_window: tool({
     title: "Get registration window",
-    description: "How long before a meal registration closes, in seconds.",
+    description: "How long before a meal's date registering for it or changing its mess closes, in seconds. get_deadlines turns this into dates.",
     annotations: READ_ONLY,
     run: (api) => api.get("/config/registration-window"),
   }),
@@ -123,7 +145,7 @@ const tools = {
 
   get_cancellation_window: tool({
     title: "Get cancellation window",
-    description: "How long before a meal cancellation closes, in seconds.",
+    description: "How long before a meal's date cancelling it closes, in seconds. get_deadlines turns this into dates.",
     annotations: READ_ONLY,
     run: (api) => api.get("/config/cancellation-window"),
   }),
@@ -156,7 +178,7 @@ const tools = {
 
   register_meal: tool({
     title: "Register for a meal",
-    description: "Register for a meal at a mess. The meal is charged to your bill.",
+    description: "Register for a meal at a mess, or move an existing registration to another mess: registering again replaces it and uses no cancellation. The meal is charged to your bill.",
     annotations: WRITE,
     input: { meal_date: date, meal_type: meal, meal_mess: messId, guests: z.number().int().min(0).optional().describe("Number of guests") },
     run: (api, args) => api.post("/registrations", args),
@@ -164,7 +186,7 @@ const tools = {
 
   cancel_meal: tool({
     title: "Cancel a meal",
-    description: "Cancel a meal registration. Uses up one of your limited monthly cancellations.",
+    description: "Cancel a meal so you don't eat it and aren't charged. Uses up one of your limited monthly cancellations for that meal type. Not for changing mess: use register_meal for that.",
     annotations: DESTRUCTIVE,
     input: { meal_date: date, meal_type: meal },
     run: (api, args) => api.post("/registrations/cancel", args),
@@ -180,7 +202,7 @@ const tools = {
 
   skip_meal: tool({
     title: "Skip a meal",
-    description: "Mark a registered meal as skipped, or unmark it. Unlike cancelling, you are still charged.",
+    description: "Mark a registered meal as skipped (you won't come), or unmark it. Unlike cancelling, you are still charged and no cancellation is used.",
     annotations: { ...WRITE, idempotentHint: true },
     input: { meal_date: date, meal_type: meal, meal_mess: messId, skipping: z.boolean().default(true).describe("False to unskip") },
     run: (api, args) => api.post("/registrations/skipping", args),

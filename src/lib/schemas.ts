@@ -45,6 +45,12 @@ export function todayIST(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
+export function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function weekdayOf(isoDate: string): string {
   return new Date(`${isoDate}T00:00:00Z`).toLocaleString("en-US", { weekday: "long", timeZone: "UTC" }).toLowerCase();
 }
