@@ -489,30 +489,30 @@ test("a stray 401 on one portal endpoint doesn't end the grant", async () => {
   const { body: client } = await register();
   const tokens = await signIn(client.client_id);
 
-  portalRejects = "/mess/info";
+  portalRejects = "/registrations/bill";
   try {
     portalPaths.length = 0;
-    const stray = await callTool(tokens.access_token, "get_mess_info");
+    const stray = await callTool(tokens.access_token, "get_bill");
     assert.equal(stray.json.result.isError, true, "the call itself still fails");
     assert.doesNotMatch(stray.json.result.content[0].text, /Reconnect/, "and doesn't tell the user to sign in again");
-    assert.deepEqual(portalPaths, ["/mess/info", "/auth/me"], "the key was checked once on /auth/me");
+    assert.deepEqual(portalPaths, ["/registrations/bill", "/auth/me"], "the key was checked once on /auth/me");
 
     assert.equal((await listTools(tokens.access_token)).res.status, 200, "the grant survives");
-    assert.match((await callTool(tokens.access_token, "get_user_info")).json.result.content[0].text, /Test Student/);
+    assert.match((await callTool(tokens.access_token, "get_account")).json.result.content[0].text, /Test Student/);
   } finally {
     portalRejects = undefined;
   }
-  assert.ok(!(await callTool(tokens.access_token, "get_mess_info")).json.result.isError, "later calls to the same endpoint work");
+  assert.ok(!(await callTool(tokens.access_token, "get_bill")).json.result.isError, "later calls to the same endpoint work");
 });
 
 test("a network error while rechecking the key doesn't end the grant", async () => {
   const { body: client } = await register();
   const tokens = await signIn(client.client_id);
 
-  portalRejects = "/mess/info";
+  portalRejects = "/registrations/bill";
   portalDrops = "/auth/me";
   try {
-    const call = await callTool(tokens.access_token, "get_mess_info");
+    const call = await callTool(tokens.access_token, "get_bill");
     assert.equal(call.json.result.isError, true);
     assert.doesNotMatch(call.json.result.content[0].text, /Reconnect/);
     assert.equal((await listTools(tokens.access_token)).res.status, 200, "the grant survives");
@@ -537,16 +537,16 @@ test("a key the portal refuses everywhere is confirmed once, then the grant ends
     assert.equal((await listTools(fanOut.access_token)).res.status, 401, "the grant is gone");
 
     portalPaths.length = 0;
-    const one = await callTool(single.access_token, "get_mess_info");
+    const one = await callTool(single.access_token, "get_bill");
     assert.match(one.json.result.content[0].text, /Reconnect/);
-    assert.deepEqual(portalPaths, ["/mess/info", "/auth/me"]);
+    assert.deepEqual(portalPaths, ["/registrations/bill", "/auth/me"]);
     assert.equal((await listTools(single.access_token)).res.status, 401);
 
-    // When the failing call is the identity check, there is nothing to recheck
+    // get_account asks /auth/me itself, so its 401 is the check and no second one is made
     portalPaths.length = 0;
-    const me = await callTool(identity.access_token, "get_user_info");
+    const me = await callTool(identity.access_token, "get_account");
     assert.match(me.json.result.content[0].text, /Reconnect/);
-    assert.deepEqual(portalPaths, ["/auth/me"]);
+    assert.equal(portalPaths.filter((p) => p === "/auth/me").length, 1, String(portalPaths));
     assert.equal((await listTools(identity.access_token)).res.status, 401);
   } finally {
     portalKeyRevoked = false;
