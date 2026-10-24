@@ -14,7 +14,7 @@ export const meal = z.enum(MEALS);
 export const date = z.iso.date({ error: "Use a calendar date as YYYY-MM-DD, e.g. 2026-10-25" });
 export const optionalDate = date.optional();
 export const month = z.number().int().min(1).max(12);
-export const year = z.number().int().min(2000).max(2100).describe("Year, e.g. 2026");
+export const year = z.number().int().min(2000).max(2100);
 export const messId = z.string();
 
 // zod's JSON Schema has noise a model gains nothing from, yet every tools/list sends it:

@@ -104,7 +104,7 @@ const tools = {
   get_deadlines: tool({
     title: "Get deadlines",
     description:
-      "Today's date (IST), the first meal date each tool is still open for (worked out from the portal's windows the way dining.iiit.ac.in does; set_meal_mess also has a last date), and the cancellations used and allowed this month for each meal type. The portal has the final say.",
+      "Today (IST), the first meal date each tool can still be used for (set_meal_mess also has a last date), and the cancellations used and allowed this month per meal type. Worked out from the portal's windows the way dining.iiit.ac.in does; the portal has the final say.",
     annotations: READ_ONLY,
     run: async (api, _args, { now }) => {
       const get = async (path: string, params?: Params) => unwrap(await api.get(path, params));
