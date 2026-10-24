@@ -78,7 +78,7 @@ export function renderPrivacy(page: PrivacyPage): string {
   <h2>How long things are kept</h2>
   <ul>
     <li><strong>Sign-in codes</strong> last ${CODE_LIFETIME}. <strong>Access tokens</strong> last ${ACCESS_TOKEN_LIFETIME}. <strong>Refresh tokens</strong> last ${REFRESH_TOKEN_LIFETIME}; your app gets a new one each time it uses one, so the clock restarts whenever your app connects. Expired tokens are cleaned up hourly.</li>
-    <li><strong>Your encrypted key</strong> is kept until the connection ends. That happens when your app tells the server you disconnected, when the portal rejects the key and your app next uses the connector, if a refresh token is used twice (a sign it was copied), or automatically once your app hasn't connected for ${REFRESH_TOKEN_LIFETIME} and its last token has expired. A sign-in that was never finished is removed within a couple of hours.</li>
+    <li><strong>Your encrypted key</strong> is kept until the connection ends. That happens when your app tells the server you disconnected, when the portal rejects the key and your app next uses the connector, if an old refresh token is used again more than 30 seconds after it was replaced (a sign it was copied), or automatically once your app hasn't connected for ${REFRESH_TOKEN_LIFETIME} and its last token has expired. A sign-in that was never finished is removed within a couple of hours.</li>
     <li><strong>App registrations</strong> stay until the person running the server removes them.</li>
     ${statisticsRetention}
     <li><strong>Backups:</strong> the person running the server may back up its database. A backup made before you disconnected still holds your encrypted key. If you have deleted the key on the dining portal, that copy no longer works.</li>
