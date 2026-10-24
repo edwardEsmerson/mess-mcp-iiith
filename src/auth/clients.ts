@@ -4,7 +4,8 @@
 // Add a strategy by implementing ClientResolver; nothing else changes.
 
 import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
+import { request } from "node:https";
+import { BlockList, isIP, type LookupFunction } from "node:net";
 import type { ClientRepository, OAuthClient } from "./model.js";
 
 export interface ClientResolver {
@@ -158,10 +159,19 @@ export function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
+/** Every address a hostname currently points at (injectable so tests can simulate DNS rebinding). */
+export type HostResolver = (hostname: string) => Promise<{ address: string; family: number }[]>;
+
+const resolveWithDns: HostResolver = (hostname) => lookup(hostname, { all: true });
+
 /**
- * Fetches small JSON documents from public HTTPS URLs only. Hostnames resolving to private,
- * loopback, link-local or CGNAT (Tailscale) addresses are refused, so a client_id can't be used
- * to probe the campus network or this machine.
+ * Fetches small JSON documents from public HTTPS URLs only. Addresses in private, loopback,
+ * link-local or CGNAT (Tailscale) ranges are refused, so a client_id can't be used to probe the
+ * campus network or this machine.
+ *
+ * The check happens inside the socket's own name lookup, so the addresses that were checked are
+ * the only ones it can connect to. Checking first and letting fetch resolve the name again would
+ * let a DNS-rebinding domain answer with a public address once and a campus address the next time.
  */
 export class PublicHttpsJsonFetcher implements JsonFetcher {
   private readonly blocked = new BlockList();
@@ -169,6 +179,7 @@ export class PublicHttpsJsonFetcher implements JsonFetcher {
   constructor(
     private readonly maxBytes = 10 * 1024,
     private readonly timeoutMs = 5_000,
+    private readonly resolve: HostResolver = resolveWithDns,
   ) {
     for (const [net, prefix] of [
       ["0.0.0.0", 8],
@@ -195,25 +206,73 @@ export class PublicHttpsJsonFetcher implements JsonFetcher {
 
   async fetchJson(url: URL): Promise<unknown> {
     if (url.protocol !== "https:") throw new Error("Only https is allowed");
-    await this.assertPublicHost(url.hostname);
+    // An IP address in the URL is connected to without any name lookup, so check it here
+    const literal = url.hostname.replace(/^\[|\]$/g, "");
+    if (isIP(literal)) this.assertPublic([{ address: literal, family: isIP(literal) }]);
 
-    const response = await fetch(url, {
-      redirect: "error",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const declared = Number(response.headers.get("content-length") ?? 0);
-    if (declared > this.maxBytes) throw new Error("Document too large");
-    const body = await response.arrayBuffer();
-    if (body.byteLength > this.maxBytes) throw new Error("Document too large");
+    const body = await this.get(url);
     return JSON.parse(new TextDecoder().decode(body));
   }
 
-  private async assertPublicHost(hostname: string): Promise<void> {
-    const host = hostname.replace(/^\[|\]$/g, "");
-    const addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
+  private get(url: URL): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const req = request(
+        url,
+        {
+          agent: false,
+          lookup: this.publicLookup,
+          signal: AbortSignal.timeout(this.timeoutMs),
+          // Not compressed, because we read the bytes as they are. The User-Agent is what fetch used to send.
+          headers: { Accept: "application/json", "Accept-Encoding": "identity", "User-Agent": "node" },
+        },
+        (res) => {
+          const fail = (error: Error) => {
+            res.destroy();
+            reject(error);
+          };
+          // Redirects aren't followed: they could lead anywhere, and the client_id URL is the document's identity
+          if (!res.statusCode || res.statusCode < 200 || res.statusCode > 299) return fail(new Error(`HTTP ${res.statusCode}`));
+          const encoding = res.headers["content-encoding"];
+          if (encoding && encoding !== "identity") return fail(new Error(`Unsupported content-encoding ${encoding}`));
+          if (Number(res.headers["content-length"] ?? 0) > this.maxBytes) return fail(new Error("Document too large"));
+
+          const chunks: Buffer[] = [];
+          let size = 0;
+          res.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > this.maxBytes) return fail(new Error("Document too large"));
+            chunks.push(chunk);
+          });
+          res.on("end", () => resolve(Buffer.concat(chunks)));
+          res.on("error", reject);
+          res.on("close", () => reject(new Error("Connection closed early")));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  /** The socket's name lookup: resolves, refuses unless every answer is public, then hands exactly those addresses to connect. */
+  private readonly publicLookup: LookupFunction = (hostname, options, callback) => {
+    this.resolve(hostname).then(
+      (addresses) => {
+        try {
+          this.assertPublic(addresses);
+        } catch (error) {
+          return callback(error as NodeJS.ErrnoException, []);
+        }
+        const family = options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
+        const usable = family === 4 || family === 6 ? addresses.filter((a) => a.family === family) : addresses;
+        if (usable.length === 0) return callback(Object.assign(new Error(`No IPv${family} address for ${hostname}`), { code: "ENOTFOUND" }), []);
+        if (options.all) return callback(null, usable);
+        callback(null, usable[0]!.address, usable[0]!.family);
+      },
+      (error: NodeJS.ErrnoException) => callback(error, []),
+    );
+  };
+
+  private assertPublic(addresses: { address: string; family: number }[]): void {
     for (const { address, family } of addresses) {
       if (this.blocked.check(address, family === 6 ? "ipv6" : "ipv4")) throw new Error("Refusing to fetch a non-public address");
     }
