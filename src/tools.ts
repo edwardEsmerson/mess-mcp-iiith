@@ -8,6 +8,7 @@ import type { McpServer, ToolAnnotations } from "@modelcontextprotocol/server";
 import { unwrap, type MessApi, type Params } from "./api/client.js";
 import { MAX_MEALS_PER_CALL, eachMeal } from "./lib/batch.js";
 import { explainMessOnRejection, messInfo, requireMesses } from "./lib/messes.js";
+import { compactRegistrations, dayMenus } from "./lib/reshape.js";
 import { DESTRUCTIVE, MEALS, READ_ONLY, WRITE, addDays, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
 
 /** What tools get besides the portal: a clock, so tests can pin "now". */
@@ -86,15 +87,17 @@ const tools = {
 
   get_menu: tool({
     title: "Get menu",
-    description: "Menu at every mess for one day.",
+    description: "Menu for one day at every mess, or just one meal and/or mess.",
     annotations: READ_ONLY,
-    input: { date: optionalDate },
-    run: async (api, { date }, { now }) => {
-      // The API returns the whole week; keep only the requested day
+    input: { date: optionalDate, meal: meal.optional(), mess: messId.optional() },
+    run: async (api, { date, meal, mess }, { now }) => {
       const on = date ?? todayIST(now());
-      const menus = unwrap(await api.get("/mess/menus", { on })) as { mess: string; days?: Record<string, unknown> }[];
-      const day = weekdayOf(on);
-      return { date: on, day, menus: menus.map((m) => ({ mess: m.mess, menu: m.days?.[day] ?? null })) };
+      const weekday = weekdayOf(on);
+      // The API returns the whole week; keep only the requested day
+      const menus = dayMenus(unwrap(await api.get("/mess/menus", { on })), weekday, meal, mess);
+      // No menu for the mess asked for: say so if it isn't a mess at all
+      if (mess && menus.length === 0) await requireMesses(api, [mess]);
+      return { date: on, weekday, menus };
     },
   }),
 
@@ -135,13 +138,13 @@ const tools = {
   get_registrations: tool({
     title: "List registrations",
     description:
-      "Your meals from `from` to `to` (at most 2 months). Without dates: today and the next 6 days. A meal is cancelled if cancelled_at is set and eaten if availed_at is set.",
+      "Your meals from `from` to `to` (at most 2 months). Without dates: today and the next 6 days. status is registered, cancelled or eaten; price is in paise, once charged.",
     annotations: READ_ONLY,
     input: { from: optionalDate, to: optionalDate },
     run: async (api, args, { now }) => {
       const from = args.from ?? todayIST(now());
       const to = args.to ?? addDays(from, 6);
-      return { from, to, registrations: asList(unwrap(await api.get("/registrations", { from, to }))) };
+      return { from, to, registrations: compactRegistrations(unwrap(await api.get("/registrations", { from, to }))) };
     },
   }),
 
@@ -288,9 +291,11 @@ export function registerTools(server: McpServer, api: MessApi, onCall?: ToolCall
         try {
           const result = unwrap(await def.run(api, args, context));
           onCall?.(name, performance.now() - started);
-          // Write endpoints often reply 204 No Content
-          const empty = result === undefined || (typeof result === "object" && result !== null && Object.keys(result).length === 0);
-          return { content: [{ type: "text" as const, text: empty ? "Done." : JSON.stringify(result) }] };
+          // Write endpoints often reply 204 No Content ("Done."). A read that finds nothing says so
+          // instead, since "Done." would read as success to a model that asked a question.
+          const empty = result == null || (typeof result === "object" && Object.keys(result).length === 0);
+          const text = empty ? (def.annotations.readOnlyHint ? "None." : "Done.") : JSON.stringify(result);
+          return { content: [{ type: "text" as const, text }] };
         } catch (error) {
           onCall?.(name, performance.now() - started, error);
           throw error;
