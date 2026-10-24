@@ -119,13 +119,31 @@ function parseClientMetadata(document: unknown, clientId: string): OAuthClient |
   };
 }
 
-/** Redirect URIs must be https, or http on a loopback address (native apps such as Claude Code). */
+/**
+ * Private-use URI schemes (RFC 8252 section 7.1) that a redirect may use: the browser hands the URI to
+ * whichever app on the user's own device has registered the scheme, so the code stays on their computer
+ * just like it does with a loopback redirect. Only schemes listed here are accepted, never "any scheme that
+ * isn't dangerous": javascript:, data:, file:, vbscript: and the like must keep failing. Each one needs an
+ * entry in KNOWN_APPS (known-apps.ts) too, so the sign-in page can say which app it is.
+ *
+ *   cursor:  Cursor's MCP sign-in, cursor://anysphere.cursor-mcp/oauth/callback. Cursor sends this together
+ *            with its loopback and web callbacks when it registers, and /register refuses the whole list
+ *            if any one address in it is unacceptable.
+ */
+export const PRIVATE_USE_SCHEMES: readonly string[] = ["cursor:"];
+
+/** A listed private-use scheme in its `scheme://app-id/path` form. Credentials and an empty authority don't count. */
+export function isPrivateUseRedirect(url: URL): boolean {
+  return PRIVATE_USE_SCHEMES.includes(url.protocol) && url.host !== "" && !url.username && !url.password;
+}
+
+/** Redirect URIs must be https, http on a loopback address (native apps such as Claude Code), or a listed private-use scheme. */
 export function isAcceptableRedirectUri(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
     if (url.hash) return false;
-    return url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname));
+    return url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname)) || isPrivateUseRedirect(url);
   } catch {
     return false;
   }

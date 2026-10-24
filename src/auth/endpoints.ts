@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import express, { Router, type Response } from "express";
 import { OAuthError, OAuthErrorCode, type OAuthMetadata } from "@modelcontextprotocol/server";
-import { isAcceptableRedirectUri } from "./clients.js";
+import { isAcceptableRedirectUri, PRIVATE_USE_SCHEMES } from "./clients.js";
 import type { ClientRepository } from "./model.js";
 import type { TokenService } from "./tokens.js";
 
@@ -62,7 +62,7 @@ export function registrationRouter(clients: ClientRepository): Router {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const redirectUris = body.redirect_uris;
     if (!Array.isArray(redirectUris) || redirectUris.length === 0 || redirectUris.length > 10 || !redirectUris.every(isAcceptableRedirectUri)) {
-      return res.status(400).json({ error: "invalid_redirect_uri", error_description: "redirect_uris must be https, or http on localhost/127.0.0.1" });
+      return res.status(400).json({ error: "invalid_redirect_uri", error_description: `redirect_uris must be https, http on localhost/127.0.0.1, or use the ${PRIVATE_USE_SCHEMES.join(" or ")} scheme` });
     }
     const authMethod = body.token_endpoint_auth_method ?? "none";
     if (authMethod !== "none") {

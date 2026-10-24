@@ -642,3 +642,36 @@ test("sign-in page: published client metadata documents are recognised", async (
     assert.doesNotMatch(auth.html, /We don't recognise|We can't tell|Unverified/, document);
   }
 });
+
+test("Cursor: registers with its three callbacks and signs in through its cursor:// address", async () => {
+  // Cursor sends all three at once; a custom scheme used to get the whole registration refused
+  const desktop = "cursor://anysphere.cursor-mcp/oauth/callback";
+  const { res: registered, body: client } = await register([desktop, "https://www.cursor.com/agents/mcp/oauth/callback", "http://localhost:8787/callback"], "Cursor");
+  assert.equal(registered.status, 201);
+
+  const auth = await startAuthorization(client.client_id, desktop);
+  assert.equal(auth.res.status, 200);
+  assert.equal(headline(auth.html), "Cursor wants to use your mess account");
+  assert.doesNotMatch(auth.html, /We don't recognise|We can't tell|Unverified/);
+  assert.match(auth.res.headers.get("content-security-policy"), /form-action 'self' cursor:;/, "the browser may follow the redirect to the app");
+
+  const approved = await submitKey(auth.request, GOOD_KEY);
+  assert.equal(approved.status, 302);
+  assert.match(approved.headers.get("location"), /^cursor:\/\/anysphere\.cursor-mcp\/oauth\/callback\?/);
+  const back = new URL(approved.headers.get("location"));
+  assert.equal(back.searchParams.get("state"), "xyz");
+  assert.equal(back.searchParams.get("iss"), BASE);
+
+  const token = await fetch(`${BASE}/token`, {
+    method: "POST",
+    headers: FORM,
+    body: form({ grant_type: "authorization_code", code: back.searchParams.get("code"), client_id: client.client_id, redirect_uri: desktop, code_verifier: auth.verifier, resource: RESOURCE }),
+  });
+  assert.equal(token.status, 200);
+  assert.equal((await listTools((await token.json()).access_token)).res.status, 200, "the new token reaches the MCP endpoint");
+
+  // Only the listed scheme: nothing that runs script or opens files, no other app's address
+  for (const uri of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "vbscript:msgbox(1)", "myapp://callback", "cursor:oauth/callback"]) {
+    assert.equal((await register([desktop, uri])).res.status, 400, uri);
+  }
+});

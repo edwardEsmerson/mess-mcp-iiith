@@ -93,6 +93,7 @@ async function setup(t, { documents = {}, clients = [{ clientId: CLIENT, clientN
 const pageText = (html) =>
   html
     .replace(/<style>.*?<\/style>/gs, "")
+    .replace(/<\/?(strong|em|code)>/g, "")
     .replace(/<[^>]*>/g, " ")
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
@@ -395,4 +396,104 @@ test("a client identified by a metadata document signs in like any other", async
 
   const { location } = await submit({ request, dining_key: GOOD_KEY, action: "approve" });
   assert.ok(location.searchParams.get("code"));
+});
+
+// Cursor's desktop app redirects to its own cursor:// scheme. Such a URI has no origin, so the page's
+// form-action needs the scheme, and the code is delivered to an app on this computer rather than a website.
+const CURSOR_CALLBACK = "cursor://anysphere.cursor-mcp/oauth/callback";
+const CURSOR_WEB = "https://www.cursor.com/agents/mcp/oauth/callback";
+const CURSOR_LOOPBACK = "http://localhost:8787/callback";
+const CURSOR_CLIENT = { clientId: "cursor-1", clientName: "Cursor", redirectUris: [CURSOR_CALLBACK, CURSOR_WEB, CURSOR_LOOPBACK] };
+const headline = (html) => /<h1>(.*?)<\/h1>/s.exec(html)?.[1];
+
+test("sign-in page for a cursor:// redirect names Cursor and lets the form redirect there", async (t) => {
+  const { open } = await setup(t, { clients: [CURSOR_CLIENT] });
+  const { res, html, text, request } = await open({ client_id: "cursor-1", redirect_uri: CURSOR_CALLBACK });
+
+  assert.equal(res.status, 200);
+  assert.ok(request);
+  assert.equal(headline(html), "Cursor wants to use your mess account");
+  assert.match(text, /It runs on your own computer, so when you're done you'll go back to cursor:\/\/anysphere\.cursor-mcp\./);
+  assert.doesNotMatch(text, /We don't recognise|We can't tell|Unverified/);
+
+  const csp = res.headers.get("content-security-policy");
+  assert.match(csp, /form-action 'self' cursor:;/, "the scheme is allowed, or a browser that checks redirects blocks the hand-off");
+  assert.doesNotMatch(csp, /\bnull\b/, "a custom scheme has no origin to list");
+  assert.match(csp, /default-src 'none'/, "the rest of the policy is unchanged");
+  assert.equal(decodePending(request).redirectUri, CURSOR_CALLBACK);
+});
+
+test("Cursor's other callbacks get their own sign-in pages", async (t) => {
+  const { open } = await setup(t, { clients: [CURSOR_CLIENT] });
+
+  const web = await open({ client_id: "cursor-1", redirect_uri: CURSOR_WEB });
+  assert.equal(headline(web.html), "Cursor wants to use your mess account");
+  assert.match(web.text, /you'll go back to www\.cursor\.com\./);
+  assert.match(web.res.headers.get("content-security-policy"), /form-action 'self' https:\/\/www\.cursor\.com;/);
+
+  // A loopback port says nothing about which app listens on it
+  const loopback = await open({ client_id: "cursor-1", redirect_uri: CURSOR_LOOPBACK });
+  assert.equal(headline(loopback.html), "An app on this computer wants to use your mess account");
+  assert.match(loopback.res.headers.get("content-security-policy"), /form-action 'self' http:\/\/localhost:8787;/);
+});
+
+test("a client that isn't Cursor gets no say in who the page says it is", async (t) => {
+  const { open } = await setup(t, { clients: [{ clientId: "free-credits", clientName: "Free Mess Credits", redirectUris: [CURSOR_CALLBACK] }] });
+  const { html, text } = await open({ client_id: "free-credits", redirect_uri: CURSOR_CALLBACK });
+  // The code can only go to the Cursor on the student's own computer, so the headline is true whatever the client calls itself
+  assert.equal(headline(html), "Cursor wants to use your mess account");
+  assert.doesNotMatch(text, /Free Mess Credits/);
+});
+
+test("approving sends the code to the cursor:// address, with state and issuer", async (t) => {
+  const { open, submit, tokens, events } = await setup(t, { clients: [CURSOR_CLIENT] });
+  const { request, verifier } = await open({ client_id: "cursor-1", redirect_uri: CURSOR_CALLBACK });
+
+  const { res, location } = await submit({ request, dining_key: GOOD_KEY, action: "approve" });
+
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("location"), /^cursor:\/\/anysphere\.cursor-mcp\/oauth\/callback\?/, "the address is used as it was registered");
+  assert.equal(location.protocol, "cursor:");
+  assert.equal(location.host, "anysphere.cursor-mcp");
+  assert.equal(location.pathname, "/oauth/callback");
+  assert.equal(location.searchParams.get("state"), "xyz");
+  assert.equal(location.searchParams.get("iss"), ISSUER);
+  assert.deepEqual(events, ["connected"]);
+
+  const issued = tokens.exchangeCode({ code: location.searchParams.get("code"), clientId: "cursor-1", redirectUri: CURSOR_CALLBACK, codeVerifier: verifier, resource: RESOURCE });
+  assert.ok(issued.access_token, "the code redeems for the same address");
+});
+
+test("cancelling and request errors reach the cursor:// address too", async (t) => {
+  const { open, submit } = await setup(t, { clients: [CURSOR_CLIENT] });
+
+  const { request } = await open({ client_id: "cursor-1", redirect_uri: CURSOR_CALLBACK });
+  const denied = (await submit({ request, action: "deny" })).location;
+  assert.equal(`${denied.protocol}//${denied.host}${denied.pathname}`, CURSOR_CALLBACK);
+  assert.equal(denied.searchParams.get("error"), "access_denied");
+  assert.equal(denied.searchParams.get("state"), "xyz");
+
+  const { res } = await open({ client_id: "cursor-1", redirect_uri: CURSOR_CALLBACK, code_challenge: undefined });
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("location"), /^cursor:\/\/anysphere\.cursor-mcp\/oauth\/callback\?error=invalid_request/);
+});
+
+test("a rejected key keeps the cursor:// page as it was", async (t) => {
+  const { open, submit } = await setup(t, { clients: [CURSOR_CLIENT] });
+  const { request } = await open({ client_id: "cursor-1", redirect_uri: CURSOR_CALLBACK });
+
+  const { res, html, text } = await submit({ request, dining_key: "bad-key", action: "approve" });
+  assert.equal(res.status, 400);
+  assert.match(text, /didn't accept that key/);
+  assert.equal(headline(html), "Cursor wants to use your mess account");
+  assert.match(res.headers.get("content-security-policy"), /form-action 'self' cursor:;/);
+});
+
+test("only the registered cursor:// address is a valid redirect for the client", async (t) => {
+  const { open } = await setup(t, { clients: [CURSOR_CLIENT] });
+  for (const redirect_uri of ["cursor://anysphere.cursor-mcp/oauth/other", "cursor://evil.example/oauth/callback", `${CURSOR_CALLBACK}?x=1`, "cursors://anysphere.cursor-mcp/oauth/callback", "myapp://callback", "javascript:alert(1)"]) {
+    const { res } = await open({ client_id: "cursor-1", redirect_uri });
+    assert.equal(res.status, 400, redirect_uri);
+    assert.equal(res.headers.get("location"), null, `${redirect_uri}: nothing is redirected to`);
+  }
 });

@@ -289,3 +289,73 @@ test("a registered web address doesn't open up a port range", () => {
   assert.equal(redirectUriAllowed(client, "http://app.example:8080/cb"), true);
   assert.equal(redirectUriAllowed(client, "http://app.example:9090/cb"), false);
 });
+
+// Cursor's MCP sign-in redirects to cursor://anysphere.cursor-mcp/oauth/callback and sends it to /register
+// together with a loopback and a web callback, so the whole list is refused unless this one is accepted.
+const CURSOR_CALLBACK = "cursor://anysphere.cursor-mcp/oauth/callback";
+
+test("the cursor: scheme is an acceptable redirect, in its app-id form only", () => {
+  for (const uri of [CURSOR_CALLBACK, "CURSOR://anysphere.cursor-mcp/oauth/callback", "cursor://anysphere.cursor-mcp/oauth/callback?mode=mcp", "cursor://anysphere.cursor-retrieval/any/path"]) {
+    assert.equal(isAcceptableRedirectUri(uri), true, uri);
+  }
+  for (const uri of [
+    "cursor:oauth/callback", // no authority
+    "cursor:/oauth/callback",
+    "cursor:///oauth/callback",
+    "cursor://",
+    "cursor://user@anysphere.cursor-mcp/oauth/callback", // credentials
+    "cursor://user:secret@anysphere.cursor-mcp/oauth/callback",
+    `${CURSOR_CALLBACK}#frag`,
+    "cursor:",
+  ]) {
+    assert.equal(isAcceptableRedirectUri(uri), false, uri);
+  }
+});
+
+test("only listed private-use schemes are acceptable, and the dangerous ones never are", () => {
+  for (const uri of [
+    "javascript:alert(1)",
+    "javascript://anysphere.cursor-mcp/%0aalert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "data://anysphere.cursor-mcp/x",
+    "file:///etc/passwd",
+    "file://anysphere.cursor-mcp/etc/passwd",
+    "vbscript:msgbox(1)",
+    "blob:https://app.example/1234",
+    "about:blank",
+    "ftp://app.example/cb",
+    "ws://app.example/cb",
+    // schemes that merely resemble a listed one, or belong to other apps
+    "cursors://anysphere.cursor-mcp/oauth/callback",
+    "xcursor://anysphere.cursor-mcp/oauth/callback",
+    "cursor-mcp://anysphere.cursor-mcp/oauth/callback",
+    "cursor+evil://anysphere.cursor-mcp/oauth/callback",
+    "cursor.evil://anysphere.cursor-mcp/oauth/callback",
+    "vscode://vscode.github-authentication/did-authenticate",
+    "claude://callback",
+    "myapp://callback",
+    "com.example.app:/oauth2redirect",
+  ]) {
+    assert.equal(isAcceptableRedirectUri(uri), false, uri);
+  }
+});
+
+test("a registered private-use redirect must match exactly; there is no port to vary", () => {
+  const client = { clientId: "c", redirectUris: [CURSOR_CALLBACK] };
+  assert.equal(redirectUriAllowed(client, CURSOR_CALLBACK), true);
+  assert.equal(redirectUriAllowed(client, "cursor://anysphere.cursor-mcp/oauth/other"), false);
+  assert.equal(redirectUriAllowed(client, "cursor://anysphere.cursor-mcp/oauth/callback?x=1"), false);
+  assert.equal(redirectUriAllowed(client, "cursor://evil.example/oauth/callback"), false);
+  assert.equal(redirectUriAllowed(client, "cursor://anysphere.cursor-mcp:1234/oauth/callback"), false);
+  assert.equal(redirectUriAllowed(client, "myapp://anysphere.cursor-mcp/oauth/callback"), false);
+});
+
+test("a metadata document may list Cursor's redirect, but not other custom schemes", async () => {
+  const { resolver } = cimd({ [ID]: document({ redirect_uris: [REDIRECT, CURSOR_CALLBACK, "http://localhost:8787/callback"] }) });
+  assert.deepEqual((await resolver.resolve(ID)).redirectUris, [REDIRECT, CURSOR_CALLBACK, "http://localhost:8787/callback"]);
+
+  for (const bad of ["javascript:alert(1)", "myapp://callback", "data:text/html,x", "cursor:oauth/callback"]) {
+    const { resolver: refusing } = cimd({ [ID]: document({ redirect_uris: [REDIRECT, bad] }) });
+    assert.equal(await refusing.resolve(ID), undefined, bad);
+  }
+});

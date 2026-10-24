@@ -118,7 +118,7 @@ function showConsent(res: Response, pending: PendingAuthorization, signedRequest
     renderConsentPage({
       app: identifyApp(pending.clientId, pending.redirectUri),
       claimedName: pending.clientName,
-      redirectHost: redirect.host,
+      redirectHost: isWebAddress(redirect) ? redirect.host : `${redirect.protocol}//${redirect.host}`,
       signedRequest,
       error,
     }),
@@ -130,9 +130,16 @@ function showError(res: Response, message: string) {
   res.status(400).type("html").send(renderErrorPage(message));
 }
 
+/** http(s) addresses have an origin; a private-use scheme such as cursor:// (see clients.ts) doesn't. */
+function isWebAddress(url: URL): boolean {
+  return url.protocol === "https:" || url.protocol === "http:";
+}
+
 function securityHeaders(res: Response, redirect?: URL) {
-  // form-action must allow the redirect target too, or browsers block the post-submit redirect
-  const formAction = ["'self'", redirect?.origin].filter(Boolean).join(" ");
+  // form-action must allow the redirect target too, or browsers block the post-submit redirect.
+  // For a private-use scheme the origin is "null", so the scheme itself is what gets allowed.
+  const target = redirect && (isWebAddress(redirect) ? redirect.origin : redirect.protocol);
+  const formAction = ["'self'", target].filter(Boolean).join(" ");
   res.set({
     "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
     "X-Frame-Options": "DENY",

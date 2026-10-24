@@ -3,10 +3,12 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { isAcceptableRedirectUri, PRIVATE_USE_SCHEMES } from "../dist/auth/clients.js";
 import { identifyApp, KNOWN_APPS } from "../dist/auth/known-apps.js";
 
 const UUID = "0b1d3c5e-6c56-4c63-9f43-6d6a5e0c2f10";
 const CLAUDE_CODE = "https://claude.ai/oauth/claude-code-client-metadata";
+const CURSOR_CALLBACK = "cursor://anysphere.cursor-mcp/oauth/callback";
 const unknown = { kind: "unknown" };
 
 test("a redirect to a known app's own site is recognised, whatever the client_id", () => {
@@ -78,5 +80,56 @@ test("the known-app list only holds https origins and exact client ids", () => {
       assert.equal(new URL(origin).protocol, "https:", `${app.name}: ${origin}`);
     }
     for (const id of app.clientIds) assert.equal(new URL(id).protocol, "https:", `${app.name}: ${id}`);
+  }
+});
+
+test("a redirect to Cursor's own scheme is Cursor on this computer, whatever the client_id", () => {
+  const cursor = { kind: "local", name: "Cursor" };
+  assert.deepEqual(identifyApp(UUID, CURSOR_CALLBACK), cursor);
+  assert.deepEqual(identifyApp(UUID, "CURSOR://anysphere.cursor-mcp/oauth/callback?x=1"), cursor, "the scheme isn't case sensitive");
+  assert.deepEqual(identifyApp(UUID, "cursor://anysphere.cursor-retrieval/oauth/callback"), cursor, "nor does the app id after it matter");
+  // Unlike a loopback port, the scheme is what names the app, so no client_id is needed (or consulted)
+  assert.deepEqual(identifyApp(CLAUDE_CODE, CURSOR_CALLBACK), cursor);
+  assert.deepEqual(identifyApp("https://evil.example/client.json", CURSOR_CALLBACK), cursor);
+});
+
+test("Cursor's web callback is Cursor's own site", () => {
+  assert.deepEqual(identifyApp(UUID, "https://www.cursor.com/agents/mcp/oauth/callback"), { kind: "known", name: "Cursor" });
+});
+
+test("lookalikes of Cursor's redirects are not recognised", () => {
+  for (const redirect of [
+    "https://cursor.com.evil.example/cb",
+    "https://www.cursor.com.evil.example/cb",
+    "https://evil.example/www.cursor.com",
+    "https://www.cursor.com@evil.example/cb",
+    "https://sub.www.cursor.com/cb", // subdomains are not implied
+    "https://cursor.com/cb", // only the listed origin
+    "http://www.cursor.com/cb",
+    "https://www.cursor.com:8443/cb",
+    "cursor:oauth/callback", // not in scheme://app-id form
+    "cursor:///oauth/callback",
+    "cursor://user@anysphere.cursor-mcp/oauth/callback",
+    "cursors://anysphere.cursor-mcp/oauth/callback", // another scheme
+    "xcursor://anysphere.cursor-mcp/oauth/callback",
+    "cursor-mcp://anysphere.cursor-mcp/oauth/callback",
+    "cursor.evil://anysphere.cursor-mcp/oauth/callback",
+    "vscode://vscode.github-authentication/did-authenticate", // another app's scheme, not listed
+  ]) {
+    assert.deepEqual(identifyApp(UUID, redirect), unknown, redirect);
+  }
+});
+
+test("private-use schemes are recognised exactly where clients.ts accepts them", () => {
+  const listed = KNOWN_APPS.flatMap((app) => app.schemes);
+  assert.deepEqual([...listed].sort(), [...PRIVATE_USE_SCHEMES].sort(), "the two lists name the same schemes");
+  assert.equal(new Set(listed).size, listed.length, "and no scheme belongs to two apps");
+
+  for (const scheme of listed) {
+    assert.match(scheme, /^[a-z][a-z0-9+.-]*:$/, `${scheme} is a lowercase scheme with its colon`);
+    assert.ok(!["http:", "https:", "javascript:", "data:", "file:", "vbscript:", "blob:", "about:", "ftp:", "ws:", "wss:"].includes(scheme), `${scheme} must not be a web or script scheme`);
+    const redirect = `${scheme}//some.app-id/callback`;
+    assert.equal(isAcceptableRedirectUri(redirect), true, redirect);
+    assert.equal(identifyApp(UUID, redirect).kind, "local", redirect);
   }
 });

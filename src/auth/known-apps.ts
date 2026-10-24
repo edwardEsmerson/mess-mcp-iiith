@@ -17,10 +17,18 @@
 // sub.claude.ai, http://claude.ai and claude.ai:8443 are all different origins. Subdomains are not
 // included implicitly: list a host only when it belongs to the app's operator.
 //
-// Loopback redirects (http://localhost, 127.0.0.1, [::1]) stay on the student's own computer.
+// Loopback redirects (http://localhost, 127.0.0.1, [::1]) stay on the student's own computer. So do
+// redirects to a private-use scheme such as cursor:// (RFC 8252 section 7.1): the browser hands the URI to
+// whichever app on that device registered the scheme, so the code never travels to a server someone else
+// runs, and PKCE makes it useless to any other local program that gets hold of it. Unlike a loopback port,
+// which any program can open, a scheme is claimed per app, so on a normal install it does say which app
+// receives the code, and the page names it. That is why a listed scheme needs no client_id to be named:
+// a phisher who registers a cursor:// redirect gets nothing, because the code goes to the student's own Cursor.
+// The schemes listed here must be the ones clients.ts accepts (PRIVATE_USE_SCHEMES); a unit test keeps
+// the two lists in step.
 // Everything else, including every app registered through /register, is unrecognised.
 
-import { isLoopbackHost } from "./clients.js";
+import { isLoopbackHost, isPrivateUseRedirect } from "./clients.js";
 
 export interface KnownApp {
   name: string;
@@ -28,19 +36,23 @@ export interface KnownApp {
   clientIds: string[];
   /** Origins its web callback pages live on. */
   origins: string[];
+  /** Private-use URI schemes (with the colon) the app registers with the operating system and redirects to. */
+  schemes: string[];
 }
 
 export const KNOWN_APPS: KnownApp[] = [
-  { name: "Claude", clientIds: [], origins: ["https://claude.ai", "https://claude.com"] },
-  { name: "ChatGPT", clientIds: [], origins: ["https://chatgpt.com"] },
-  { name: "Claude Code", clientIds: ["https://claude.ai/oauth/claude-code-client-metadata"], origins: [] },
-  { name: "Visual Studio Code", clientIds: ["https://vscode.dev/oauth/client-metadata.json"], origins: ["https://vscode.dev", "https://insiders.vscode.dev"] },
+  { name: "Claude", clientIds: [], origins: ["https://claude.ai", "https://claude.com"], schemes: [] },
+  { name: "ChatGPT", clientIds: [], origins: ["https://chatgpt.com"], schemes: [] },
+  { name: "Claude Code", clientIds: ["https://claude.ai/oauth/claude-code-client-metadata"], origins: [], schemes: [] },
+  { name: "Visual Studio Code", clientIds: ["https://vscode.dev/oauth/client-metadata.json"], origins: ["https://vscode.dev", "https://insiders.vscode.dev"], schemes: [] },
+  // The desktop app redirects to cursor://anysphere.cursor-mcp/oauth/callback or http://localhost:8787/callback, cloud agents to the web address
+  { name: "Cursor", clientIds: [], origins: ["https://www.cursor.com"], schemes: ["cursor:"] },
 ];
 
 export type AppIdentity =
   /** A web app we recognise; the code goes to its own site. */
   | { kind: "known"; name: string }
-  /** The code goes to a loopback address, so only this computer gets it. `name` is set when the client_id is a known app's. */
+  /** The code goes to a loopback address or an app's own URI scheme, so only this computer gets it. `name` is set when the client_id or the scheme is a known app's. */
   | { kind: "local"; name?: string }
   /** The code goes to a site we don't know. */
   | { kind: "unknown" };
@@ -58,6 +70,9 @@ export function identifyApp(clientId: string, redirectUri: string): AppIdentity 
 
   if (redirect.protocol === "http:" && isLoopbackHost(redirect.hostname)) {
     return { kind: "local", name: KNOWN_APPS.find((app) => app.clientIds.includes(clientId))?.name };
+  }
+  if (isPrivateUseRedirect(redirect)) {
+    return { kind: "local", name: KNOWN_APPS.find((app) => app.schemes.includes(redirect.protocol))?.name };
   }
   return { kind: "unknown" };
 }
