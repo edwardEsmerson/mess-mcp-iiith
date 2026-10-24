@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new tool or an improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Never paste your dining key or tokens here
+
+        Issues are public. Do not include your dining auth key, any `mmcp_` token, or a screenshot or log that shows one. If you already posted one, delete the key at [dining.iiit.ac.in](https://dining.iiit.ac.in) → Settings → Auth Keys right away.
+
+        This server wraps the mess portal's API, so it can only do what the portal allows. If you know which part of the dining site does what you want, say so below.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What do you want to do?
+      description: Describe the goal in plain words, for example "see which mess has the shortest queue".
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How should it work?
+      description: Optional. A new tool, a change to an existing one, or something else.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not included my dining key, any `mmcp_` token, or a screenshot or log containing one.
+          required: true

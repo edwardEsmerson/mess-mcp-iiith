@@ -1,0 +1,68 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Never paste your dining key or tokens here
+
+        Issues are public. Do not include your dining auth key, any `mmcp_` token, or a screenshot or log that shows one. If you already posted one, delete the key at [dining.iiit.ac.in](https://dining.iiit.ac.in) → Settings → Auth Keys right away.
+
+        Found a security problem? Do not open an issue. Follow the [security policy](https://github.com/edwardEsmerson/mess-mcp-iiith/security/policy).
+
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How do you use it?
+      options:
+        - Hosted connector URL (iiith-mess-mcp.tech)
+        - Local stdio server (MESS_API_KEY)
+        - Self-hosted HTTP server
+    validations:
+      required: true
+
+  - type: dropdown
+    id: app
+    attributes:
+      label: Which app are you using?
+      options:
+        - claude.ai
+        - Claude Desktop
+        - Claude Code
+        - ChatGPT
+        - Cursor
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name
+      description: If a specific tool failed, which one (for example register_meal or get_menu)?
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the exact error message and the steps that led to it. Remove any key or token first.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not included my dining key, any `mmcp_` token, or a screenshot or log containing one.
+          required: true
