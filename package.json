@@ -18,6 +18,7 @@
     "start": "node dist/stdio.js",
     "start:http": "node dist/http.js",
     "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "count-tokens": "npm run build && node scripts/count-tool-tokens.mjs",
     "deploy": "bash scripts/deploy.sh"
   },
   "engines": {
