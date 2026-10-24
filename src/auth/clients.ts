@@ -6,7 +6,7 @@
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import { BlockList, isIP, type LookupFunction } from "node:net";
-import type { ClientRepository, OAuthClient } from "./model.js";
+import { systemClock, type Clock, type ClientRepository, type OAuthClient } from "./model.js";
 
 export interface ClientResolver {
   /** Whether this strategy is responsible for the client_id at all. */
@@ -52,6 +52,7 @@ export class MetadataDocumentClientResolver implements ClientResolver {
     private readonly fetcher: JsonFetcher,
     private readonly ttlMs = 60 * 60 * 1000,
     private readonly maxEntries = 500,
+    private readonly clock: Clock = systemClock,
   ) {}
 
   handles(clientId: string): boolean {
@@ -60,7 +61,7 @@ export class MetadataDocumentClientResolver implements ClientResolver {
 
   async resolve(clientId: string): Promise<OAuthClient | undefined> {
     const cached = this.cache.get(clientId);
-    if (cached && cached.until > Date.now()) return cached.client;
+    if (cached && cached.until > this.clock()) return cached.client;
 
     const url = parseClientIdUrl(clientId);
     if (!url) return undefined;
@@ -75,7 +76,7 @@ export class MetadataDocumentClientResolver implements ClientResolver {
     if (!client) return undefined;
 
     if (this.cache.size >= this.maxEntries) this.cache.delete(this.cache.keys().next().value!);
-    this.cache.set(clientId, { client, until: Date.now() + this.ttlMs });
+    this.cache.set(clientId, { client, until: this.clock() + this.ttlMs });
     return client;
   }
 }
