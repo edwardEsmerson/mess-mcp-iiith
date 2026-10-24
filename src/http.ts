@@ -17,6 +17,7 @@ import { MetricsRecorder } from "./metrics/recorder.js";
 import { measureRequests, metricsRouter } from "./metrics/router.js";
 import { SqliteMetricsStore } from "./metrics/sqlite.js";
 import { createServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
+import { siteRouter } from "./site/router.js";
 
 const DOCS_URL = "https://github.com/edwardEsmerson/mess-mcp-iiith#readme";
 
@@ -85,6 +86,7 @@ if (metrics) {
       "/revoke",
       "/register",
       "/healthz",
+      "/privacy",
       "/metrics",
       "/dashboard",
       "/.well-known/oauth-authorization-server",
@@ -98,6 +100,8 @@ app.set("trust proxy", config.trustProxy);
 app.get("/healthz", (_req, res) => {
   res.type("text/plain").send("ok");
 });
+
+app.use(siteRouter({ metricsEnabled: metrics !== undefined, hostingNote: config.hostingNote }));
 
 app.use(
   mcpAuthMetadataRouter({

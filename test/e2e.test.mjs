@@ -335,3 +335,75 @@ test("client metadata documents: ChatGPT's published document resolves", async (
   assert.equal(auth.res.status, 200);
   assert.match(auth.html, /<h1>ChatGPT wants/);
 });
+
+// Public pages. A second server (own port, own data dir) is used where a case needs different settings.
+async function withServer(env, run) {
+  const { createServer } = await import("node:net");
+  const probe = createServer().listen(0, "127.0.0.1");
+  await once(probe, "listening");
+  const port = probe.address().port;
+  probe.close();
+  await once(probe, "close");
+
+  const dir = mkdtempSync(join(tmpdir(), "mess-mcp-e2e-"));
+  const child = spawn(process.execPath, ["dist/http.js"], {
+    env: { ...process.env, PUBLIC_URL: `http://localhost:${port}`, PORT: String(port), MCP_SECRET: randomBytes(32).toString("base64"), DATA_DIR: dir, DASHBOARD_PASSWORD: "", METRICS_TOKEN: "", HOSTING_NOTE: "", ...env },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      child.stderr.on("data", (chunk) => String(chunk).includes("listening") && resolve());
+      child.on("exit", (code) => reject(new Error(`server exited with ${code}`)));
+    });
+    await run(`http://localhost:${port}`);
+  } finally {
+    child.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("privacy page: what is stored, for how long, and who can see the traffic", async () => {
+  const res = await fetch(`${BASE}/privacy`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/html/);
+  assert.match(res.headers.get("content-security-policy"), /^default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; /);
+  const html = await res.text();
+  assert.match(html, /<title>Privacy/);
+  assert.match(html, /AES-256-GCM/);
+  assert.match(html, /SHA-256 hash/);
+  assert.match(html, /Sign-in codes<\/strong> last 5 minutes/);
+  assert.match(html, /Access tokens<\/strong> last 1 hour/);
+  assert.match(html, /Refresh tokens<\/strong> last 60 days/);
+  assert.match(html, /Usage statistics \(turned on for this server\)/, "this server runs with a dashboard password");
+  assert.match(html, /deleted after 90 days/);
+  assert.match(html, /Whoever runs this server can technically decrypt your key/);
+  assert.match(html, /Only connect if you trust whoever runs this server/);
+  assert.match(html, /Tailscale Funnel/);
+  assert.match(html, /Cloudflare[^<]*can see everything/);
+  assert.match(html, /not an IIIT Hyderabad service/);
+  assert.match(html, /href="https:\/\/dining\.iiit\.ac\.in"/);
+  assert.match(html, /href="https:\/\/github\.com\/edwardEsmerson\/mess-mcp-iiith\/issues"/);
+  assert.match(html, /Never paste your dining key or any token into an issue/);
+  assert.doesNotMatch(html, /How this server is hosted/, "no operator note without HOSTING_NOTE");
+  assert.match(html, /hasn't described its setup/);
+  assert.doesNotMatch(html, /<script|<iframe|<img|<link|\bsrc=|@import|url\(https?:/, "nothing is loaded from elsewhere");
+  assert.doesNotMatch(html, /good-key|mmcp_/);
+});
+
+test("privacy page: the operator's hosting note is escaped, and statistics show as off", async () => {
+  await withServer({ HOSTING_NOTE: `Runs on a <b>laptop</b> & "Wi-Fi" <script>alert(1)</script>` }, async (base) => {
+    const html = await (await fetch(`${base}/privacy`)).text();
+    assert.match(html, /<h2>How this server is hosted<\/h2>/);
+    assert.ok(html.includes("Runs on a &lt;b&gt;laptop&lt;/b&gt; &amp; &quot;Wi-Fi&quot; &lt;script&gt;alert(1)&lt;/script&gt;"), "plain text, HTML-escaped");
+    assert.doesNotMatch(html, /<b>laptop|<script/);
+    assert.doesNotMatch(html, /hasn't described its setup/);
+    assert.match(html, /Usage statistics \(turned off for this server\)/);
+    assert.doesNotMatch(html, /deleted after 90 days/, "no retention line for statistics that aren't kept");
+  });
+});
+
+test("privacy page: a blank hosting note shows no section", async () => {
+  await withServer({ HOSTING_NOTE: "   " }, async (base) => {
+    assert.doesNotMatch(await (await fetch(`${base}/privacy`)).text(), /How this server is hosted/);
+  });
+});

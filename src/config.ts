@@ -21,6 +21,8 @@ export interface HttpConfig {
   insecureLocalIssuer: boolean;
   /** Enables /metrics and /dashboard when set. */
   dashboardPassword?: string;
+  /** Plain text the operator wants shown on /privacy under "How this server is hosted". */
+  hostingNote?: string;
 }
 
 export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig {
@@ -50,6 +52,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
     trustProxy: env.TRUST_PROXY || "loopback",
     insecureLocalIssuer,
     dashboardPassword,
+    hostingNote: env.HOSTING_NOTE?.trim() || undefined,
   };
 }
 
