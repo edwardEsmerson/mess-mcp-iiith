@@ -110,4 +110,4 @@ deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to
 
 ## Roadmap
 
-1. npm publish for `npx mess-mcp-iiith`.
+1. npm publish for `npx mess-mcp-iiith`. Blocked by `"private": true` in package.json, and only useful on the campus network, since the portal is unreachable from elsewhere.
