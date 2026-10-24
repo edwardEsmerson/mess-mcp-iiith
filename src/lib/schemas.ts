@@ -4,7 +4,9 @@
 import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 
-export const meal = z.enum(["breakfast", "lunch", "snacks", "dinner"]).describe("Meal type");
+export const MEALS = ["breakfast", "lunch", "snacks", "dinner"] as const;
+
+export const meal = z.enum(MEALS).describe("Meal type");
 export const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").describe("Date as YYYY-MM-DD");
 export const optionalDate = date.optional().describe("Date as YYYY-MM-DD. Defaults to today (IST).");
 export const month = z.number().int().min(1).max(12).describe("Month, 1-12");
@@ -40,9 +42,10 @@ export const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: t
 export const WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
 export const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
 
-export function todayIST(): string {
+/** Today's date in IST. `now` is injectable so tests can pin the clock. */
+export function todayIST(now: Date = new Date()): string {
   // en-CA formats as YYYY-MM-DD
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
 }
 
 export function addDays(isoDate: string, days: number): string {
@@ -51,6 +54,7 @@ export function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Lowercase English weekday name of a YYYY-MM-DD date, e.g. "sunday". */
 export function weekdayOf(isoDate: string): string {
   return new Date(`${isoDate}T00:00:00Z`).toLocaleString("en-US", { weekday: "long", timeZone: "UTC" }).toLowerCase();
 }

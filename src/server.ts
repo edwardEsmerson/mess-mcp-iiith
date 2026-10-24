@@ -6,22 +6,26 @@ import type { MessApi } from "./api/client.js";
 import { registerTools, type ToolCallObserver } from "./tools.js";
 
 export const SERVER_NAME = "mess-mcp-iiith";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.3.0";
 
 const INSTRUCTIONS = `Manages the user's meals on the IIIT Hyderabad mess (dining) portal.
-Dates are YYYY-MM-DD and "today" means today in IST. Mess IDs come from get_mess_info. Money is in paise (divide by 100 for rupees).
+
+Conventions: dates are YYYY-MM-DD (left out means today) and "today" is today in IST. A meal is breakfast, lunch, snacks or dinner. A mess is its exact ID from get_mess_info, such as yuktahar or kadamba-veg; a wrong one is rejected with the valid IDs. Money is in paise (divide by 100 for rupees).
 
 How meals work:
-- Each meal (breakfast, lunch, snacks, dinner) on a date has at most one registration, at one mess. With no registration, the portal allocates a vegetarian meal at some mess.
-- To move a meal to another mess, call register_meal again with the new mess. It replaces the registration and uses no cancellation. Never cancel a meal just to change its mess.
-- cancel_meal is for not eating the meal at all: it isn't charged, but each user gets only a few cancellations per meal type per month.
-- skip_meal says you won't come; the meal is still charged and no cancellation is used.
-- Registering or changing mess closes a few days before the meal, cancelling closes later, skipping stays open until the day. Call get_deadlines for today's date and the exact cutoffs before changing anything.
+- Each meal on a date has at most one mess. With none set, the portal allocates a vegetarian meal at some mess.
+- cancel_meal opts out of a meal: no charge, but only a few cancellations per meal type per month. skip_meal says you won't come: the meal is still charged and no cancellation is used.
+- Setting a mess, cancelling and skipping each close a different time before the meal. Call get_deadlines for the exact cutoffs and the cancellations left before changing anything.
 
-register_meal, register_extra and create_monthly_registration add charges to the user's bill, and cancel_meal uses up a limited monthly cancellation, so confirm these with the user unless they asked for that exact change.`;
+Confirm with the user before set_meal_mess, register_extra or create_monthly_registration (they add charges) and cancel_meal (it uses a limited monthly cancellation), unless they asked for that exact change.`;
 
-export function createServer(api: MessApi, onToolCall?: ToolCallObserver): McpServer {
+export interface CreateServerOptions {
+  /** The clock tools read "today" from. Tests pin it; it defaults to the real time. */
+  now?: () => Date;
+}
+
+export function createServer(api: MessApi, onToolCall?: ToolCallObserver, options: CreateServerOptions = {}): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION }, { instructions: INSTRUCTIONS });
-  registerTools(server, api, onToolCall);
+  registerTools(server, api, onToolCall, { now: options.now ?? (() => new Date()) });
   return server;
 }

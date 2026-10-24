@@ -1,45 +1,48 @@
 // Every tool, as a table of { input schema, annotations, API call }.
-// Tools return the portal's JSON as-is (minus the { data } envelope); the model reads it directly.
-// Units the model needs to know (paise, seconds) are stated in the descriptions.
+// Tools return the portal's JSON (minus the { data } envelope) unless it is too big or confusing for
+// a model, in which case the tool trims it. Units the model needs to know (paise, seconds) are stated
+// in the descriptions.
 
 import { z } from "zod";
 import type { McpServer, ToolAnnotations } from "@modelcontextprotocol/server";
-import type { MessApi } from "./api/client.js";
-import { DESTRUCTIVE, READ_ONLY, WRITE, addDays, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
+import { unwrap, type MessApi, type Params } from "./api/client.js";
+import { MAX_MEALS_PER_CALL, eachMeal } from "./lib/batch.js";
+import { explainMessOnRejection, messInfo, requireMesses } from "./lib/messes.js";
+import { DESTRUCTIVE, MEALS, READ_ONLY, WRITE, addDays, compactJsonSchema, date, meal, messId, month, optionalDate, todayIST, weekdayOf, year } from "./lib/schemas.js";
+
+/** What tools get besides the portal: a clock, so tests can pin "now". */
+export interface Context {
+  now: () => Date;
+}
 
 interface Tool<S extends z.ZodRawShape> {
   title: string;
   description: string;
   annotations: ToolAnnotations;
   input?: S;
-  run: (api: MessApi, args: z.infer<z.ZodObject<S>>) => Promise<unknown>;
+  run: (api: MessApi, args: z.infer<z.ZodObject<S>>, context: Context) => Promise<unknown>;
 }
 
 // Identity helper so each entry's `run` gets typed args from its own `input`
 const tool = <S extends z.ZodRawShape = {}>(def: Tool<S>) => def;
 
+const guests = z.number().int().min(0).optional().describe("Number of guests");
+const mealList = <T extends z.ZodType>(item: T) => z.array(item).min(1).max(MAX_MEALS_PER_CALL);
+
+// The portal answers an empty list with an empty 204, which the client turns into {}
+const asList = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0 ? [] : value);
+
 const tools = {
   // Account
 
-  get_user_info: tool({
-    title: "Get profile",
-    description: "Your profile: name, email, roll number, last login.",
+  get_account: tool({
+    title: "Get account",
+    description: "Your profile (name, email, roll number, last login) and preferences.",
     annotations: READ_ONLY,
-    run: (api) => api.get("/auth/me"),
-  }),
-
-  reset_qr_token: tool({
-    title: "Reset QR token",
-    description: "Reset the QR code token used to verify meals at the mess. The old QR code stops working.",
-    annotations: DESTRUCTIVE,
-    run: (api) => api.post("/auth/reset-token"),
-  }),
-
-  get_preferences: tool({
-    title: "Get preferences",
-    description: "Your notification and meal preferences.",
-    annotations: READ_ONLY,
-    run: (api) => api.get("/preferences"),
+    run: async (api) => {
+      const [profile, preferences] = await Promise.all([api.get("/auth/me"), api.get("/preferences")]);
+      return { profile: unwrap(profile), preferences: unwrap(preferences) };
+    },
   }),
 
   update_preferences: tool({
@@ -60,13 +63,25 @@ const tools = {
     },
   }),
 
+  reset_qr_token: tool({
+    title: "Reset QR token",
+    description: "Reset the QR code token used to verify meals at the mess. The old QR code stops working.",
+    annotations: DESTRUCTIVE,
+    run: (api) => api.post("/auth/reset-token"),
+  }),
+
   // Messes and rules
 
   get_mess_info: tool({
     title: "List messes",
-    description: "All messes with their IDs and whether they are open. Use these IDs wherever a mess ID is needed.",
+    description:
+      "Messes in use, with their IDs, ratings and serving times. With a meal, only the messes serving it, with that meal's rate in paise and seats left for each category (registered, unregistered).",
     annotations: READ_ONLY,
-    run: (api) => api.get("/mess/info"),
+    input: { meal: meal.optional(), date: optionalDate },
+    run: (api, { meal, date }, { now }) => {
+      const on = date ?? todayIST(now());
+      return messInfo(api, on, weekdayOf(on), meal);
+    },
   }),
 
   get_menu: tool({
@@ -74,146 +89,92 @@ const tools = {
     description: "Menu at every mess for one day.",
     annotations: READ_ONLY,
     input: { date: optionalDate },
-    run: async (api, { date }) => {
+    run: async (api, { date }, { now }) => {
       // The API returns the whole week; keep only the requested day
-      const on = date ?? todayIST();
+      const on = date ?? todayIST(now());
       const menus = unwrap(await api.get("/mess/menus", { on })) as { mess: string; days?: Record<string, unknown> }[];
       const day = weekdayOf(on);
       return { date: on, day, menus: menus.map((m) => ({ mess: m.mess, menu: m.days?.[day] ?? null })) };
     },
   }),
 
-  get_meal_rates: tool({
-    title: "Get meal rates",
-    description: "Price of a meal at each mess, by category (registered, unregistered, guest). Rates are in paise.",
-    annotations: READ_ONLY,
-    input: { meal, date: optionalDate },
-    run: (api, { meal, date }) => api.get("/mess/rates", { meal, on: date }),
-  }),
-
-  get_meal_capacities: tool({
-    title: "Get meal capacities",
-    description: "Remaining and total capacity at each mess for a meal.",
-    annotations: READ_ONLY,
-    input: { meal, date: optionalDate },
-    run: (api, { meal, date }) => api.get("/mess/capacities", { meal, on: date }),
-  }),
-
-  get_meal_timings: tool({
-    title: "Get meal timings",
-    description: "Serving times of each meal at each mess.",
-    annotations: READ_ONLY,
-    input: { date: optionalDate },
-    run: (api, { date }) => api.get("/config/meal-timings", { on: date }),
-  }),
-
   get_deadlines: tool({
     title: "Get deadlines",
     description:
-      "Today's date (IST) and the first meal date each action is still open for, worked out from the portal's windows the way dining.iiit.ac.in does: registering or changing mess (up to the last registrable date), cancelling or uncancelling, adding extras, and skipping. The portal has the final say.",
+      "Today's date (IST), the first meal date each tool is still open for (worked out from the portal's windows the way dining.iiit.ac.in does; set_meal_mess also has a last date), and the cancellations used and allowed this month for each meal type. The portal has the final say.",
     annotations: READ_ONLY,
-    run: async (api) => {
+    run: async (api, _args, { now }) => {
+      const get = async (path: string, params?: Params) => unwrap(await api.get(path, params));
       const [registration, cancellation, extras, lastDate] = await Promise.all(
-        ["/config/registration-window", "/config/cancellation-window", "/config/extras-window", "/config/registration-max-date"].map(async (path) => unwrap(await api.get(path))),
+        ["/config/registration-window", "/config/cancellation-window", "/config/extras-window", "/config/registration-max-date"].map((path) => get(path)),
       );
-      const today = todayIST();
+      const cancellations = await Promise.all(
+        MEALS.map((meal) =>
+          Promise.all([get("/registrations/cancellations", { meal }), get("/config/max-cancellations", { meal })])
+            .then(([used, limit]) => ({ used, limit }))
+            .catch(() => null),
+        ),
+      );
+      const today = todayIST(now());
       // Windows are in seconds, but the portal compares whole dates
       const after = (seconds: unknown) => addDays(today, Math.floor(Number(seconds) / 86400));
       return {
         today,
-        register_or_change_mess: { from: after(registration), to: lastDate },
-        cancel_or_uncancel: { from: after(cancellation) },
-        add_extras: { from: after(extras) },
-        skip: { from: today },
+        weekday: weekdayOf(today),
+        set_meal_mess: { from: after(registration), to: lastDate },
+        cancel_meal: { from: after(cancellation) },
+        register_extra: { from: after(extras) },
+        skip_meal: { from: today },
+        cancellations: Object.fromEntries(MEALS.map((meal, i) => [meal, cancellations[i]])),
       };
     },
   }),
 
-  get_registration_window: tool({
-    title: "Get registration window",
-    description: "How long before a meal's date registering for it or changing its mess closes, in seconds. get_deadlines turns this into dates.",
-    annotations: READ_ONLY,
-    run: (api) => api.get("/config/registration-window"),
-  }),
-
-  get_registration_max_date: tool({
-    title: "Get last registrable date",
-    description: "The furthest date meals can currently be registered for.",
-    annotations: READ_ONLY,
-    run: (api) => api.get("/config/registration-max-date"),
-  }),
-
-  get_cancellation_window: tool({
-    title: "Get cancellation window",
-    description: "How long before a meal's date cancelling it closes, in seconds. get_deadlines turns this into dates.",
-    annotations: READ_ONLY,
-    run: (api) => api.get("/config/cancellation-window"),
-  }),
-
-  get_max_cancellations: tool({
-    title: "Get cancellation limit",
-    description: "Maximum cancellations allowed per month for a meal.",
-    annotations: READ_ONLY,
-    input: { meal },
-    run: (api, { meal }) => api.get("/config/max-cancellations", { meal }),
-  }),
-
-  // Registrations
+  // Meals
 
   get_registrations: tool({
     title: "List registrations",
-    description: "Your meal registrations in a date range (at most 2 months). A registration is cancelled if cancelled_at is set and eaten if availed_at is set.",
+    description:
+      "Your meals from `from` to `to` (at most 2 months). Without dates: today and the next 6 days. A meal is cancelled if cancelled_at is set and eaten if availed_at is set.",
     annotations: READ_ONLY,
-    input: { from: date, to: date },
-    run: (api, { from, to }) => api.get("/registrations", { from, to }),
+    input: { from: optionalDate, to: optionalDate },
+    run: async (api, args, { now }) => {
+      const from = args.from ?? todayIST(now());
+      const to = args.to ?? addDays(from, 6);
+      return { from, to, registrations: asList(unwrap(await api.get("/registrations", { from, to }))) };
+    },
   }),
 
-  get_registration: tool({
-    title: "Get registration",
-    description: "Your registration for one meal on a date, or for every meal that day if meal is omitted.",
-    annotations: READ_ONLY,
-    input: { meal: meal.optional(), date: optionalDate },
-    run: (api, { meal, date }) => api.get("/registration", { meal, date }),
-  }),
-
-  register_meal: tool({
-    title: "Register for a meal",
-    description: "Register for a meal at a mess, or move an existing registration to another mess: registering again replaces it and uses no cancellation. The meal is charged to your bill.",
-    annotations: WRITE,
-    input: { meal_date: date, meal_type: meal, meal_mess: messId, guests: z.number().int().min(0).optional().describe("Number of guests") },
-    run: (api, args) => api.post("/registrations", args),
+  set_meal_mess: tool({
+    title: "Set a meal's mess",
+    description:
+      "Choose which mess you eat each listed meal at. To change a meal's mess, call this again with the new one. The meals are charged to your bill: confirm with the user first. Returns a result per meal.",
+    annotations: { ...WRITE, idempotentHint: true },
+    input: { meals: mealList(z.object({ date, meal, mess: messId, guests })) },
+    run: async (api, { meals }) => {
+      await requireMesses(api, meals.map((m) => m.mess));
+      return eachMeal(meals, (m) => api.post("/registrations", { meal_date: m.date, meal_type: m.meal, meal_mess: m.mess, guests: m.guests }));
+    },
   }),
 
   cancel_meal: tool({
-    title: "Cancel a meal",
-    description: "Cancel a meal so you don't eat it and aren't charged. Uses up one of your limited monthly cancellations for that meal type. Not for changing mess: use register_meal for that.",
+    title: "Cancel meals",
+    description:
+      "Opt out of the listed meals: you aren't charged, and each uses one of your monthly cancellations, so confirm with the user first. With undo, opt back in. Returns a result per meal.",
     annotations: DESTRUCTIVE,
-    input: { meal_date: date, meal_type: meal },
-    run: (api, args) => api.post("/registrations/cancel", args),
-  }),
-
-  uncancel_meal: tool({
-    title: "Uncancel a meal",
-    description: "Restore a cancelled meal registration.",
-    annotations: WRITE,
-    input: { meal_date: date, meal_type: meal },
-    run: (api, args) => api.post("/registrations/uncancel", args),
+    input: { meals: mealList(z.object({ date, meal })), undo: z.boolean().optional() },
+    run: (api, { meals, undo }) => eachMeal(meals, (m) => api.post(undo ? "/registrations/uncancel" : "/registrations/cancel", { meal_date: m.date, meal_type: m.meal })),
   }),
 
   skip_meal: tool({
-    title: "Skip a meal",
-    description: "Mark a registered meal as skipped (you won't come), or unmark it. Unlike cancelling, you are still charged and no cancellation is used.",
+    title: "Skip meals",
+    description: "Say you won't come to the listed meals. You are still charged and no cancellation is used. With undo, take it back. Returns a result per meal.",
     annotations: { ...WRITE, idempotentHint: true },
-    input: { meal_date: date, meal_type: meal, meal_mess: messId, skipping: z.boolean().default(true).describe("False to unskip") },
-    run: (api, args) => api.post("/registrations/skipping", args),
-  }),
-
-  get_cancellation_count: tool({
-    title: "Get cancellations used",
-    description: "How many cancellations you've used for a meal in a month. Defaults to the current month.",
-    annotations: READ_ONLY,
-    input: { meal, month: month.optional(), year: year.optional() },
-    run: (api, args) => api.get("/registrations/cancellations", args),
+    input: { meals: mealList(z.object({ date, meal, mess: messId })), undo: z.boolean().optional() },
+    run: async (api, { meals, undo }) => {
+      await requireMesses(api, meals.map((m) => m.mess));
+      return eachMeal(meals, (m) => api.post("/registrations/skipping", { meal_date: m.date, meal_type: m.meal, meal_mess: m.mess, skipping: !undo }));
+    },
   }),
 
   get_monthly_registration: tool({
@@ -229,7 +190,10 @@ const tools = {
     description: "Register at one mess for a whole month.",
     annotations: WRITE,
     input: { month, year, mess: messId },
-    run: (api, args) => api.post("/registrations/monthly", args),
+    run: async (api, args) => {
+      await requireMesses(api, [args.mess]);
+      return api.post("/registrations/monthly", args);
+    },
   }),
 
   delete_monthly_registration: tool({
@@ -244,18 +208,15 @@ const tools = {
 
   get_extras: tool({
     title: "List extra items",
-    description: "Extra items on offer for a meal, with IDs, mess and rate in paise. Availability and IDs vary by date and mess.",
+    description:
+      "Extra items on offer for a meal (with IDs, mess and rate in paise; they vary by date and mess), and the extras you have registered (with the registration IDs needed to delete them).",
     annotations: READ_ONLY,
     input: { meal, date: optionalDate },
-    run: (api, { meal, date }) => api.get("/extras", { meal, date }),
-  }),
-
-  get_extra_registrations: tool({
-    title: "List your extras",
-    description: "Extra items you've registered for a meal, with registration IDs (needed to delete them).",
-    annotations: READ_ONLY,
-    input: { meal, date: optionalDate },
-    run: (api, { meal, date }) => api.get("/registrations/extras", { meal, date }),
+    run: async (api, { meal, date }, { now }) => {
+      const on = date ?? todayIST(now());
+      const [offered, registered] = await Promise.all([api.get("/extras", { meal, date: on }), api.get("/registrations/extras", { meal, date: on })]);
+      return { date: on, weekday: weekdayOf(on), meal, on_offer: asList(unwrap(offered)), registered: asList(unwrap(registered)) };
+    },
   }),
 
   register_extra: tool({
@@ -264,18 +225,21 @@ const tools = {
     annotations: WRITE,
     input: {
       extra_id: z.string().min(1).describe("Item ID from get_extras for the same date and meal"),
-      meal_date: date,
-      meal_type: meal,
-      meal_mess: messId.describe("Mess offering this extra on that date"),
+      date,
+      meal,
+      mess: messId.describe("Mess offering this extra on that date"),
     },
-    run: (api, { extra_id, ...rest }) => api.post("/registrations/extras", { extra: extra_id, ...rest }),
+    run: async (api, { extra_id, date, meal, mess }) => {
+      await requireMesses(api, [mess]);
+      return api.post("/registrations/extras", { extra: extra_id, meal_date: date, meal_type: meal, meal_mess: mess });
+    },
   }),
 
   delete_extra_registration: tool({
     title: "Delete an extra registration",
     description: "Delete an extra item registration.",
     annotations: DESTRUCTIVE,
-    input: { registration_id: z.string().min(1).describe("Registration ID from get_extra_registrations") },
+    input: { registration_id: z.string().min(1).describe("Registration ID from get_extras") },
     run: (api, { registration_id }) => api.delete("/registrations/extras", { id: registration_id }),
   }),
 
@@ -294,12 +258,12 @@ const tools = {
     description: "Submit anonymous feedback for a meal you've eaten.",
     annotations: WRITE,
     input: {
-      meal_date: date,
-      meal_type: meal,
+      date,
+      meal,
       rating: z.number().int().min(1).max(5).describe("Rating, 1-5"),
       remarks: z.string().optional().describe("Comments"),
     },
-    run: (api, args) => api.post("/registrations/feedback", args),
+    run: (api, { date, meal, rating, remarks }) => api.post("/registrations/feedback", { meal_date: date, meal_type: meal, rating, remarks }),
   }),
 
   get_meal_rating: tool({
@@ -307,19 +271,14 @@ const tools = {
     description: "Average rating and rating count for a meal, for one mess or all messes.",
     annotations: READ_ONLY,
     input: { meal, date: optionalDate, mess: messId.optional() },
-    run: (api, args) => api.get("/registration/rating", args),
+    run: (api, args) => explainMessOnRejection(api, args.mess, () => api.get("/registration/rating", args)),
   }),
 };
-
-// The portal wraps most responses as { data: ... }
-function unwrap(response: unknown): unknown {
-  return response && typeof response === "object" && "data" in response ? response.data : response;
-}
 
 /** Told about each tool call once it finishes, with what it threw if it failed (used for metrics). */
 export type ToolCallObserver = (tool: string, durationMs: number, error?: unknown) => void;
 
-export function registerTools(server: McpServer, api: MessApi, onCall?: ToolCallObserver) {
+export function registerTools(server: McpServer, api: MessApi, onCall?: ToolCallObserver, context: Context = { now: () => new Date() }) {
   for (const [name, def] of Object.entries(tools) as [string, Tool<z.ZodRawShape>][]) {
     server.registerTool(
       name,
@@ -327,7 +286,7 @@ export function registerTools(server: McpServer, api: MessApi, onCall?: ToolCall
       async (args) => {
         const started = performance.now();
         try {
-          const result = unwrap(await def.run(api, args));
+          const result = unwrap(await def.run(api, args, context));
           onCall?.(name, performance.now() - started);
           // Write endpoints often reply 204 No Content
           const empty = result === undefined || (typeof result === "object" && result !== null && Object.keys(result).length === 0);

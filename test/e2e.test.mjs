@@ -253,18 +253,18 @@ test("MCP calls use the stored key; bad tokens and foreign origins are refused",
   assert.equal(init.json.result.serverInfo.name, "mess-mcp-iiith");
 
   const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-  assert.equal(list.json.result.tools.length, 31);
+  assert.equal(list.json.result.tools.length, 19);
   const schemas = JSON.stringify(list.json.result.tools.map((t) => t.inputSchema));
   assert.doesNotMatch(schemas, /\$schema|9007199254740991/, "tool schemas carry no zod noise");
 
-  const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_user_info", arguments: {} } });
+  const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_bill", arguments: {} } });
   assert.match(call.json.result.content[0].text, /Test Student/);
 
   const deadlines = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_deadlines", arguments: {} } });
-  const { today, register_or_change_mess, cancel_or_uncancel, add_extras } = JSON.parse(deadlines.json.result.content[0].text);
+  const { today, set_meal_mess, cancel_meal, register_extra } = JSON.parse(deadlines.json.result.content[0].text);
   const daysAfterToday = (d) => (Date.parse(d) - Date.parse(today)) / 86400000;
-  assert.deepEqual([daysAfterToday(register_or_change_mess.from), daysAfterToday(cancel_or_uncancel.from), daysAfterToday(add_extras.from)], [4, 2, 1]);
-  assert.equal(register_or_change_mess.to, "2099-12-31");
+  assert.deepEqual([daysAfterToday(set_meal_mess.from), daysAfterToday(cancel_meal.from), daysAfterToday(register_extra.from)], [4, 2, 1]);
+  assert.equal(set_meal_mess.to, "2099-12-31");
 
   assert.equal((await mcp("not-a-real-token", { jsonrpc: "2.0", id: 1, method: "tools/list" })).res.status, 401);
   assert.equal((await mcp(tokens.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { origin: "https://evil.example" })).res.status, 403);
@@ -275,7 +275,7 @@ test("a key revoked on the portal ends the grant so the client re-authenticates"
   const tokens = await signIn(client.client_id);
   portalKeyRevoked = true;
   try {
-    const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_user_info", arguments: {} } });
+    const call = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_bill", arguments: {} } });
     assert.equal(call.json.result.isError, true);
     assert.match(call.json.result.content[0].text, /Reconnect/);
     assert.equal((await mcp(tokens.access_token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).res.status, 401);
@@ -293,12 +293,12 @@ test("metrics and dashboard: password required, counts what earlier cases did", 
   const res = await fetch(`${BASE}/metrics`, { headers: { authorization: `Bearer ${DASHBOARD_PASSWORD}` } });
   assert.equal(res.status, 200);
   const text = await res.text();
-  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_user_info",outcome="ok"\} 1$/m);
-  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_user_info",outcome="portal_rejected"\} 1$/m, "the revoked-key call");
+  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_bill",outcome="ok"\} 1$/m);
+  assert.match(text, /^mess_mcp_tool_calls_total\{tool="get_bill",outcome="portal_rejected"\} 1$/m, "the revoked-key call");
   assert.match(text, /^mess_mcp_grants_revoked_total\{reason="portal_key_rejected"\} 1$/m);
   assert.match(text, /^mess_mcp_sign_ins_total\{outcome="rejected_key"\} 1$/m);
   assert.match(text, /^mess_mcp_sign_ins_total\{outcome="cancelled"\} 1$/m);
-  assert.match(text, /^mess_mcp_tool_call_duration_seconds_count\{tool="get_user_info"\} 2$/m);
+  assert.match(text, /^mess_mcp_tool_call_duration_seconds_count\{tool="get_bill"\} 2$/m);
   assert.match(text, /^mess_mcp_active_users\{window="1d"\} 2$/m, "both grants that called a tool");
   assert.match(text, /^mess_mcp_connections\{app="E2E <b>Client<\/b>"\} \d+$/m, "grouped by app name, not per-registration client ID");
   assert.match(text, /^mess_mcp_http_requests_total\{route="\/token",method="POST",status="200"\} \d+$/m);
@@ -326,7 +326,7 @@ test("metrics and dashboard: password required, counts what earlier cases did", 
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
   const html = await page.text();
-  assert.match(html, /<code>get_user_info<\/code><\/td><td class="n">2<\/td>/, "daily totals were saved and read back");
+  assert.match(html, /<code>get_bill<\/code><\/td><td class="n">2<\/td>/, "daily totals were saved and read back");
   assert.match(html, /aria-current="page">7 days/);
 
   const signOut = await fetch(`${BASE}/dashboard/sign-out`, { method: "POST", headers: { ...FORM, cookie }, redirect: "manual" });

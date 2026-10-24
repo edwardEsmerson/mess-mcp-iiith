@@ -1,6 +1,6 @@
 {
   "name": "mess-mcp-iiith",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for the IIIT Hyderabad dining portal: menus, registrations, cancellations, extras and bills from any MCP client",
   "type": "module",
   "private": true,

@@ -18,6 +18,11 @@ export interface MessApi {
   delete<T>(endpoint: string, params?: Params): Promise<T>;
 }
 
+/** The portal wraps most responses as { data: ... }; this returns what is inside. */
+export function unwrap(response: unknown): unknown {
+  return response && typeof response === "object" && "data" in response ? response.data : response;
+}
+
 export class MessApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
