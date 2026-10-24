@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 
-const PORT = 3999;
+// E2E_PORT lets several checkouts run the suite at once
+const PORT = Number(process.env.E2E_PORT ?? 3999);
 const BASE = `http://localhost:${PORT}`;
 const RESOURCE = `${BASE}/mcp`;
 const REDIRECT = "http://127.0.0.1:7777/callback";
