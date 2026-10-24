@@ -8,7 +8,7 @@ import { isLoopbackHost } from "./auth/clients.js";
 export interface HttpConfig {
   host: string;
   port: number;
-  /** Public origin, e.g. https://ayaansh-hoeserver.tail730cfd.ts.net (also the OAuth issuer). */
+  /** Public origin, e.g. https://your-machine.your-tailnet.ts.net (also the OAuth issuer). */
   publicOrigin: string;
   /** The MCP endpoint's canonical URL: publicOrigin + /mcp. */
   resourceUrl: URL;
