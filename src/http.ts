@@ -78,6 +78,8 @@ const mcp = toNodeHandler(
 // the sign-in page sends `Referrer-Policy: no-referrer`, so browsers submit its form with `Origin: null`,
 // and that form is already protected by its signed request.
 const app = express();
+// Express's default `X-Powered-By: Express` header only tells scanners which framework to try
+app.disable("x-powered-by");
 app.use(hostHeaderValidation(config.allowedHosts));
 app.use(clientIps.observe);
 if (metrics) {

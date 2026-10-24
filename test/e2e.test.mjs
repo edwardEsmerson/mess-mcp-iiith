@@ -449,3 +449,11 @@ test("landing page: the dashboard counts it as a known route", async () => {
   assert.match(text, /^mess_mcp_http_requests_total\{route="\/",method="GET",status="200"\} \d+$/m);
   assert.match(text, /^mess_mcp_http_requests_total\{route="\/privacy",method="GET",status="200"\} \d+$/m);
 });
+
+test("responses don't advertise the framework", async () => {
+  // A page, a plain 404, the OAuth metadata and the 401 challenge from /mcp all come through Express
+  for (const path of ["/healthz", "/authorize", "/nothing-here", "/.well-known/oauth-authorization-server", "/mcp"]) {
+    const res = await fetch(`${BASE}${path}`);
+    assert.equal(res.headers.get("x-powered-by"), null, path);
+  }
+});
