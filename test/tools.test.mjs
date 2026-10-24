@@ -212,10 +212,23 @@ test("a wrong mess fails with the valid IDs and writes nothing", () => {
 
     assert.equal(portal.calls.filter((c) => c.method === "POST").length, 0, "no write reached the portal");
 
-    // The same check guards the other tools that take a mess
+    // register_extra leaves the mess to the portal, and explains it only once the portal refuses
     const extra = await session.callTool("register_extra", { extra_id: "e1", date: "2026-10-30", meal: "lunch", mess: "kadamba" });
     assert.equal(extra.isError, true);
     assert.match(text(extra), /Did you mean: kadamba-veg/);
+  });
+});
+
+test("extras at a mess with tags 0 can still be registered", () => {
+  // The live portal offers extras at kadamba-veg-mild, which /mess/info lists with tags 0
+  const portal = fakePortal({
+    "GET /mess/info": () => ({ data: [...MESSES, { id: "kadamba-veg-mild", name: "Kadamba (Veg with Mild Spice)", tags: 0 }] }),
+    "POST /registrations/extras": () => undefined,
+  });
+  return withServer(portal, {}, async (session) => {
+    const result = await session.callTool("register_extra", { extra_id: "e1", date: "2026-10-30", meal: "dinner", mess: "kadamba-veg-mild" });
+    assert.equal(result.isError, undefined, text(result));
+    assert.equal(portal.calls.filter((c) => c.path === "/mess/info").length, 0, "no up-front check");
   });
 });
 

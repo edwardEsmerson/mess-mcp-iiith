@@ -232,10 +232,12 @@ const tools = {
       meal,
       mess: messId,
     },
-    run: async (api, { extra_id, date, meal, mess }) => {
-      await requireMesses(api, [mess]);
-      return api.post("/registrations/extras", { extra: extra_id, meal_date: date, meal_type: meal, meal_mess: mess });
-    },
+    // Extras are offered at messes with tags 0 too (the mild Kadamba ones), so the mess isn't checked
+    // up front: the extra's own ID already pins it, and only a rejection is explained
+    run: (api, { extra_id, date, meal, mess }) =>
+      explainMessOnRejection(api, mess, () =>
+        api.post("/registrations/extras", { extra: extra_id, meal_date: date, meal_type: meal, meal_mess: mess }),
+      ),
   }),
 
   delete_extra_registration: tool({
