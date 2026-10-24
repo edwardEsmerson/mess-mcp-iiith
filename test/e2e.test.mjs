@@ -407,3 +407,45 @@ test("privacy page: a blank hosting note shows no section", async () => {
     assert.doesNotMatch(await (await fetch(`${base}/privacy`)).text(), /How this server is hosted/);
   });
 });
+
+test("landing page: connector URL, steps for each app, video, disconnecting and links", async () => {
+  const res = await fetch(`${BASE}/`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/html/);
+  const html = await res.text();
+  assert.match(html, /<code id="connector-url">http:\/\/localhost:\d+\/mcp<\/code>/);
+  assert.ok(html.includes(`<code id="connector-url">${RESOURCE}</code>`), "the configured connector URL, not a hard-coded one");
+  assert.ok(html.includes(`claude mcp add --transport http mess ${RESOURCE} -s user`));
+  assert.match(html, /Add custom connector/);
+  assert.match(html, /Developer mode/);
+  assert.match(html, /Cursor, VS Code and other apps/);
+  assert.match(html, /Settings → Auth Keys/);
+  assert.match(html, /href="https:\/\/youtu\.be\/A3CGL5TJSxs"/);
+  assert.match(html, /href="\/privacy"/);
+  assert.match(html, /href="https:\/\/github\.com\/edwardEsmerson\/mess-mcp-iiith"/);
+  assert.match(html, /<h2>Disconnecting<\/h2>/);
+  assert.match(html, /about 60 days after your app last connected/);
+  assert.match(html, /<button type="button" id="copy" class="primary" hidden>/, "the copy button only appears once the script runs");
+  assert.doesNotMatch(html, /<iframe|<img|<link|\bsrc=|@import|url\(https?:/, "nothing is loaded from elsewhere");
+
+  // The CSP lets exactly one script run: the page's own copy button
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  assert.equal(scripts.length, 1);
+  const hash = createHash("sha256").update(scripts[0][1]).digest("base64");
+  const csp = res.headers.get("content-security-policy");
+  assert.ok(csp.includes(`script-src 'sha256-${hash}'`), "the CSP hash matches the inline script");
+  assert.match(csp, /default-src 'none'/);
+  assert.doesNotMatch(csp, /script-src[^;]*unsafe/);
+
+  const privacy = await fetch(`${BASE}/privacy`);
+  assert.doesNotMatch(privacy.headers.get("content-security-policy"), /script-src/, "the privacy page runs no script");
+
+  const head = await fetch(`${BASE}/`, { method: "HEAD" });
+  assert.equal(head.status, 200);
+});
+
+test("landing page: the dashboard counts it as a known route", async () => {
+  const text = await (await fetch(`${BASE}/metrics`, { headers: { authorization: `Bearer ${DASHBOARD_PASSWORD}` } })).text();
+  assert.match(text, /^mess_mcp_http_requests_total\{route="\/",method="GET",status="200"\} \d+$/m);
+  assert.match(text, /^mess_mcp_http_requests_total\{route="\/privacy",method="GET",status="200"\} \d+$/m);
+});

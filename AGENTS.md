@@ -60,9 +60,10 @@ src/
     prometheus.ts    tiny counter/histogram registry and text exposition
     dashboard.ts     HTML rendering only (no JavaScript; CSS charts with table views)
     router.ts        /metrics, /dashboard, password sign-in and session cookie, request counting
-  site/              public pages (no external resources)
+  site/              public pages (no external resources); only the landing page runs a script, a copy button allowed by a CSP hash
     layout.ts        shared page frame, CSS (the sign-in page's look) and CSP headers
     facts.ts         token and retention lifetimes worded for the pages, read from the code's constants
+    landing.ts       GET /: what this is, connector URL with copy button, per-app steps, video link, disconnecting
     privacy.ts       GET /privacy: what is stored and for how long (keep in step with auth/ and metrics/)
     router.ts        routes; renders each page once at startup
 deploy/mess-mcp.service      systemd unit (see docs/hosting.md)

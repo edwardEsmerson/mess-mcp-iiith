@@ -85,6 +85,7 @@ if (metrics) {
       "/token",
       "/revoke",
       "/register",
+      "/",
       "/healthz",
       "/privacy",
       "/metrics",
@@ -101,7 +102,7 @@ app.get("/healthz", (_req, res) => {
   res.type("text/plain").send("ok");
 });
 
-app.use(siteRouter({ metricsEnabled: metrics !== undefined, hostingNote: config.hostingNote }));
+app.use(siteRouter({ connectorUrl: config.resourceUrl.href, metricsEnabled: metrics !== undefined, hostingNote: config.hostingNote }));
 
 app.use(
   mcpAuthMetadataRouter({
