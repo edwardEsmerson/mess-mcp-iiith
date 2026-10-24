@@ -9,3 +9,6 @@ data/
 .wrangler/
 # Machine-specific deployment notes
 deploy/LOCAL.md
+
+# Demo videos (too big for git; the guide is on YouTube)
+guides-demos/
