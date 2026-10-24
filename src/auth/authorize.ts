@@ -7,9 +7,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { Router, type Request, type Response } from "express";
-import { displayName, isLoopbackHost, redirectUriAllowed, type CompositeClientResolver } from "./clients.js";
+import { redirectUriAllowed, type CompositeClientResolver } from "./clients.js";
 import type { Signer } from "./crypto.js";
 import type { DiningKeyValidator, GrantService } from "./grants.js";
+import { identifyApp } from "./known-apps.js";
 import type { AuthEvents, Clock } from "./model.js";
 import { FONT_PATH, renderConsentPage, renderErrorPage } from "./pages.js";
 import { sameResource, type TokenService } from "./tokens.js";
@@ -32,7 +33,8 @@ const FONT = readFileSync(
 
 interface PendingAuthorization {
   clientId: string;
-  clientName: string;
+  /** What the client calls itself. Unverified, so the page only shows it in small print. */
+  clientName?: string;
   redirectUri: string;
   codeChallenge: string;
   state?: string;
@@ -67,7 +69,7 @@ export function authorizeRouter(deps: AuthorizeDeps): Router {
 
     const pending: PendingAuthorization = {
       clientId: client.clientId,
-      clientName: displayName(client),
+      clientName: client.clientName,
       redirectUri,
       codeChallenge: q.code_challenge,
       state: q.state,
@@ -114,9 +116,9 @@ function showConsent(res: Response, pending: PendingAuthorization, signedRequest
   securityHeaders(res, redirect);
   res.status(error ? 400 : 200).type("html").send(
     renderConsentPage({
-      clientName: pending.clientName,
+      app: identifyApp(pending.clientId, pending.redirectUri),
+      claimedName: pending.clientName,
       redirectHost: redirect.host,
-      loopbackOnly: isLoopbackHost(redirect.hostname),
       signedRequest,
       error,
     }),

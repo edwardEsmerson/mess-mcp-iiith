@@ -552,3 +552,93 @@ test("a key the portal refuses everywhere is confirmed once, then the grant ends
     portalKeyRevoked = false;
   }
 });
+
+const headline = (html) => /<h1>(.*?)<\/h1>/s.exec(html)?.[1];
+
+test("sign-in page: an app calling itself Claude with an unrecognised redirect gets the warning", async () => {
+  // Registered names are free text and any https redirect is accepted, so this is what a phisher can do
+  for (const [redirect, host] of [
+    ["https://claude.ai.evil.example/callback", "claude.ai.evil.example"],
+    ["https://evil.example/callback", "evil.example"],
+    ["https://claude.ai:8443/callback", "claude.ai:8443"],
+  ]) {
+    const { body: client } = await register([redirect], "Claude");
+    const auth = await startAuthorization(client.client_id, redirect);
+    assert.equal(auth.res.status, 200, redirect);
+    assert.equal(headline(auth.html), `Give ${host} access to your mess account?`, "the headline names where the access goes, not the app's own name");
+    assert.match(auth.html, /We don't recognise this app\.<\/strong> Only continue if you started connecting from an app you trust\. The key you paste gives full access to your mess account\./);
+    assert.doesNotMatch(auth.html, /Claude wants|recognised app/i);
+    assert.equal(auth.html.match(/Claude/g)?.length, 1, "the claimed name appears once");
+    assert.match(auth.html, /<p class="fine">Unverified: the app calls itself \u201cClaude\u201d\./, "and only as unverified small print");
+  }
+});
+
+test("sign-in page: a name can't smuggle markup or hidden text into the page", async () => {
+  const redirect = "https://evil.example/callback";
+  const name = "Claude <script>alert(1)</script>\u202e\u200bSafe\n&amp;";
+  const { body: client } = await register([redirect], name);
+  const auth = await startAuthorization(client.client_id, redirect);
+  assert.doesNotMatch(auth.html, /<script>|\u202e|\u200b/);
+  assert.match(auth.html, /calls itself \u201cClaude &lt;script&gt;alert\(1\)&lt;\/script&gt; Safe &amp;amp;\u201d\./);
+});
+
+test("sign-in page: an unrecognised app's warning survives a rejected key", async () => {
+  const redirect = "https://evil.example/callback";
+  const { body: client } = await register([redirect], "Claude");
+  const auth = await startAuthorization(client.client_id, redirect);
+  const rejected = await submitKey(auth.request, "wrong-key");
+  assert.equal(rejected.status, 400);
+  const html = await rejected.text();
+  assert.match(html, /accept that key/);
+  assert.equal(headline(html), "Give evil.example access to your mess account?");
+  assert.match(html, /We don't recognise this app/);
+});
+
+test("sign-in page: a recognised redirect gets the recognised headline, whatever the app calls itself", async () => {
+  for (const [redirect, name] of [
+    ["https://claude.ai/api/mcp/auth_callback", "Claude"],
+    ["https://claude.ai/api/mcp/auth_callback", "Free Mess Credits"],
+    ["https://claude.com/api/mcp/auth_callback", undefined],
+  ]) {
+    const { body: client } = await register([redirect], name);
+    const auth = await startAuthorization(client.client_id, redirect);
+    assert.equal(auth.res.status, 200, redirect);
+    assert.equal(headline(auth.html), "Claude wants to use your mess account");
+    assert.match(auth.html, new RegExp(`you'll go back to <strong>${new URL(redirect).host}</strong>`));
+    assert.doesNotMatch(auth.html, /We don't recognise|Unverified|Free Mess Credits/);
+  }
+
+  const chatgpt = "https://chatgpt.com/connector_platform_oauth_redirect";
+  const { body: client } = await register([chatgpt], "Claude");
+  assert.equal(headline((await startAuthorization(client.client_id, chatgpt)).html), "ChatGPT wants to use your mess account", "the headline follows the redirect, not the claimed name");
+});
+
+test("sign-in page: a loopback redirect is an app on this computer, not a named app", async () => {
+  const { body: client } = await register(["http://127.0.0.1/callback"], "Claude");
+  const auth = await startAuthorization(client.client_id, "http://127.0.0.1:7777/callback");
+  assert.equal(headline(auth.html), "An app on this computer wants to use your mess account");
+  assert.match(auth.html, /We can't tell which app this is/);
+  assert.doesNotMatch(auth.html, /Claude wants|We don't recognise/);
+  assert.match(auth.html, /Unverified: the app calls itself \u201cClaude\u201d/);
+});
+
+test("sign-in page: links to the privacy page", async () => {
+  const { body: client } = await register();
+  assert.match((await startAuthorization(client.client_id)).html, /<a href="\/privacy">/);
+});
+
+test("sign-in page: published client metadata documents are recognised", async (t) => {
+  // These are the real documents behind the client IDs in auth/known-apps.ts
+  const cases = [
+    ["https://claude.ai/oauth/mcp-oauth-client-metadata", "https://claude.ai/api/mcp/auth_callback", "Claude"],
+    ["https://vscode.dev/oauth/client-metadata.json", "http://127.0.0.1:33418/", "Visual Studio Code"],
+  ];
+  for (const [document, redirect, name] of cases) {
+    const online = await fetch(document, { signal: AbortSignal.timeout(5000) }).then((r) => r.ok, () => false);
+    if (!online) return t.skip(`${new URL(document).host} is not reachable from here`);
+    const auth = await startAuthorization(document, redirect);
+    assert.equal(auth.res.status, 200, document);
+    assert.equal(headline(auth.html), `${name} wants to use your mess account`, document);
+    assert.doesNotMatch(auth.html, /We don't recognise|We can't tell|Unverified/, document);
+  }
+});

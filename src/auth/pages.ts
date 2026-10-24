@@ -1,9 +1,13 @@
 // HTML for the authorization page. Rendering only: no request handling or validation here.
 
+import type { AppIdentity } from "./known-apps.js";
+
 export interface ConsentPage {
-  clientName: string;
+  /** Who the app is, as far as the server could verify (see known-apps.ts). Decides the headline. */
+  app: AppIdentity;
+  /** What the app calls itself. Anyone can pick any name, so it only appears in small print. */
+  claimedName?: string;
   redirectHost: string;
-  loopbackOnly: boolean;
   signedRequest: string;
   error?: string;
 }
@@ -33,6 +37,7 @@ h1 { margin: 0 0 4px; font-size: 30px; line-height: 1.15; font-weight: 720; lett
 h2 { margin: 0; font-size: 16px; font-weight: 700; }
 p { margin: 0; color: var(--muted); }
 strong { color: var(--fg); font-weight: 650; }
+.warn strong { color: inherit; }
 a { color: var(--accent); text-underline-offset: 2px; }
 .scope { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; }
 .scope dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
@@ -78,15 +83,45 @@ function layout(title: string, body: string): string {
 </html>`;
 }
 
+/** App names are free text. Drop control and bidi characters so they can't reorder or hide the text around them. */
+function plainText(value: string): string {
+  return value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+// The headline comes from what the server verified, never from the app's own name (see known-apps.ts)
+function requestSummary(app: AppIdentity, redirectHost: string): string {
+  const host = escapeHtml(redirectHost);
+  switch (app.kind) {
+    case "known": {
+      const name = escapeHtml(app.name);
+      return `<h1>${name} wants to use your mess account</h1>
+  <p>This connects it to your IIIT Hyderabad dining account. When you're done, you'll go back to <strong>${host}</strong>. Only continue if you just started this connection from ${name}.</p>`;
+    }
+    case "local": {
+      if (app.name) {
+        const name = escapeHtml(app.name);
+        return `<h1>${name} wants to use your mess account</h1>
+  <p>This connects it to your IIIT Hyderabad dining account. It runs on your own computer, so when you're done you'll go back to <strong>${host}</strong>. Only continue if you just started this connection from ${name}.</p>`;
+      }
+      return `<h1>An app on this computer wants to use your mess account</h1>
+  <p>This connects it to your IIIT Hyderabad dining account. When you're done, you'll go back to <strong>${host}</strong>, on your own computer.</p>
+  <p class="warn"><strong>We can't tell which app this is.</strong> Only continue if you just started connecting from a program on this computer that you trust.</p>`;
+    }
+    case "unknown":
+      return `<h1>Give ${host} access to your mess account?</h1>
+  <p class="warn"><strong>We don't recognise this app.</strong> Only continue if you started connecting from an app you trust. The key you paste gives full access to your mess account.</p>`;
+  }
+}
+
 export function renderConsentPage(page: ConsentPage): string {
-  const name = escapeHtml(page.clientName);
-  const host = escapeHtml(page.redirectHost);
+  const claimedName = page.claimedName && plainText(page.claimedName);
+  // A client_id we recognise vouches for the name; for the rest it is just what the app says about itself
+  const unverifiedName = page.app.kind === "unknown" || (page.app.kind === "local" && !page.app.name) ? claimedName : undefined;
   return layout(
     "Connect IIITH Mess",
     `
 <section>
-  <h1>${name} wants to use your mess account</h1>
-  <p>This connects it to your IIIT Hyderabad dining account. When you're done, you'll go back to <strong>${host}</strong>.</p>
+  ${requestSummary(page.app, page.redirectHost)}
   <div class="scope">
     <dl>
       <dt>Can see</dt><dd>Menus, your registrations, bills and preferences</dd>
@@ -94,7 +129,6 @@ export function renderConsentPage(page: ConsentPage): string {
     </dl>
     <p>Registrations are added to your bill, and cancellations count toward your monthly limit.</p>
   </div>
-  ${page.loopbackOnly ? `<p class="warn">This app runs on your own computer. Only continue if you started this connection yourself.</p>` : ""}
 </section>
 <section>
   <h2>Get a key</h2>
@@ -115,7 +149,9 @@ export function renderConsentPage(page: ConsentPage): string {
     <button type="submit" name="action" value="deny">Cancel</button>
   </div>
 </form>
-<p class="fine">The key is stored encrypted on this server and used only to call the mess portal for you. To disconnect, delete the key on dining.iiit.ac.in.</p>`,
+<p class="fine">The key is stored encrypted on this server and used only to call the mess portal for you. To disconnect, delete the key on dining.iiit.ac.in.</p>
+${unverifiedName ? `<p class="fine">Unverified: the app calls itself \u201c${escapeHtml(unverifiedName)}\u201d. Anyone can choose that name, so it says nothing about who the app is.</p>` : ""}
+<p class="fine"><a href="/privacy">Privacy</a></p>`,
   );
 }
 
