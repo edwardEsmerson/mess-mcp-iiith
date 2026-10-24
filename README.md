@@ -13,13 +13,13 @@ An [MCP](https://modelcontextprotocol.io) server for the IIIT Hyderabad mess (di
 
 | Area | Tools |
 |---|---|
-| Menus & info | `get_mess_info`, `get_menu`, `get_meal_rates`, `get_meal_capacities`, `get_meal_timings` |
-| Registrations | `get_registrations`, `get_registration`, `register_meal`, `cancel_meal`, `uncancel_meal`, `skip_meal` |
+| Menus & info | `get_mess_info` (with timings, rates and seats), `get_menu` |
+| Meals | `get_registrations`, `set_meal_mess`, `cancel_meal` (and undo), `skip_meal` |
 | Monthly | `get_monthly_registration`, `create_monthly_registration`, `delete_monthly_registration` |
-| Extras | `get_extras`, `get_extra_registrations`, `register_extra`, `delete_extra_registration` |
+| Extras | `get_extras`, `register_extra`, `delete_extra_registration` |
 | Bills & feedback | `get_bill`, `submit_feedback`, `get_meal_rating` |
-| Rules | `get_deadlines`, `get_registration_window`, `get_registration_max_date`, `get_cancellation_window`, `get_max_cancellations`, `get_cancellation_count` |
-| Account | `get_user_info`, `reset_qr_token`, `get_preferences`, `update_preferences` |
+| Rules | `get_deadlines` (with cancellations used and allowed) |
+| Account | `get_account`, `update_preferences`, `reset_qr_token` |
 
 Tools are annotated as read-only or destructive, so clients can ask before cancelling or deleting anything.
 

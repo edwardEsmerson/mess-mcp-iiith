@@ -17,7 +17,8 @@ The goal is the simplest possible setup for non-technical students: a claude.ai 
 npm install
 npm run build        # tsc -> dist/
 npm run typecheck
-npm test             # build, then the end-to-end suite in test/ (mock portal, no real key needed)
+npm test             # build, then the suites in test/ (mock or fake portal, no real key needed)
+npm run count-tokens # size of the tool definitions and instructions (exact tokens with ANTHROPIC_API_KEY set)
 npm start            # stdio, needs MESS_API_KEY
 npm run start:http   # HTTP on 127.0.0.1:3000/mcp, needs PUBLIC_URL and MCP_SECRET
 npm run deploy -- <ssh-host>   # test, bundle, install on a server with no npm, restart (scripts/deploy.sh)
@@ -28,7 +29,7 @@ npm run build && node --test --test-name-pattern="token endpoint" test/e2e.test.
 
 There is no linter; `typecheck` is the static check. The e2e suite binds port 3999 and runs its cases in order against one server, so a case may depend on state left by earlier ones (e.g. the revocation case flips the mock portal to reject the key). All HTTP env vars are documented in `.env.example`.
 
-`npm test` runs `test/e2e.test.mjs`: it starts `dist/http.js` against a mock portal and drives OAuth discovery, the sign-in page (with a browser-style `Origin: null`), token rotation, MCP calls and portal key revocation. Add a case there when you change anything in `auth/` or `http.ts`. To smoke-test stdio, pipe JSON-RPC (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`) into `node dist/stdio.js`. For HTTP, run with `PUBLIC_URL=http://localhost:3000 MCP_SECRET=$(openssl rand -base64 32)` and drive the OAuth flow with `npx @modelcontextprotocol/inspector`. Setting `MESS_API_URL` to a local mock portal lets you test sign-in without a real key.
+`npm test` also runs `test/tools.test.mjs`, which drives the built server in-process against a fake portal with a pinned clock: tool behaviour, trimmed responses, errors that teach, deadlines in IST, and a size budget for the tool definitions. Add a case there when you add or change a tool. `test/e2e.test.mjs` starts `dist/http.js` against a mock portal and drives OAuth discovery, the sign-in page (with a browser-style `Origin: null`), token rotation, MCP calls and portal key revocation. Add a case there when you change anything in `auth/` or `http.ts`. To smoke-test stdio, pipe JSON-RPC (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`) into `node dist/stdio.js`. For HTTP, run with `PUBLIC_URL=http://localhost:3000 MCP_SECRET=$(openssl rand -base64 32)` and drive the OAuth flow with `npx @modelcontextprotocol/inspector`. Setting `MESS_API_URL` to a local mock portal lets you test sign-in without a real key.
 
 ## Layout
 
@@ -42,6 +43,9 @@ src/
   tools.ts           every tool as one table entry: { title, description, annotations, input, run }
   api/client.ts      MessApi interface, MessApiClient (one per key), MessApiError
   lib/schemas.ts     shared zod input schemas, tool annotations, IST date helpers
+  lib/messes.ts      the mess list: errors that name the valid IDs, get_mess_info's view
+  lib/batch.ts       runs a write per meal for tools that take a list of meals
+  lib/reshape.ts     trims menus and registrations
   auth/
     index.ts         createAuthorizationServer: the only place concrete auth classes are wired
     model.ts         domain types + repository interfaces the services depend on
@@ -75,12 +79,15 @@ deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to
 ## Conventions
 
 - Add a tool by adding an entry to the `tools` table in `src/tools.ts`, wrapped in `tool({...})` so `run` gets typed args. Reuse `meal`, `date`, `optionalDate`, `month`, `year`, `messId` from `lib/schemas.ts`.
-- Tools return the portal's JSON (the `{ data }` envelope is stripped; an empty 204 reply becomes "Done."). Only reshape a response when it is too big or confusing for a model (e.g. `get_menu` keeps one day of the week). Put units (paise, seconds) and field meanings in the description instead of formatting them.
+- Tools return the portal's JSON (the `{ data }` envelope is stripped; an empty reply becomes "Done." for a write and "None." for a read). Only reshape a response when it is too big or confusing for a model (e.g. `get_menu` keeps one day of the week). Put units (paise, seconds) and field meanings in the description instead of formatting them.
 - Every tool gets an annotation: `READ_ONLY`, `WRITE` or `DESTRUCTIVE`. Anything that cancels, deletes or invalidates something is `DESTRUCTIVE`.
 - To fail, throw (`MessApiError` or `Error`); the SDK turns it into an `isError` result the model can read.
 - Never hold an API key in module state. Always pass a `MessApi` into `createServer`, because the HTTP server serves many users from one process.
 - Keep dependencies pointing inward: services in `auth/` take interfaces from `auth/model.ts` (or `SecretBox`, `Signer`, `JsonFetcher`, `DiningKeyValidator`) through their constructors. Only `auth/index.ts` and `http.ts` pick concrete classes. New client identification schemes are new `ClientResolver`s; cross-cutting portal behaviour is a `MessApi` decorator.
 - Dates are `YYYY-MM-DD`. Compute "today" with `todayIST()`, never `new Date().toISOString()` (wrong before 05:30 IST and on UTC hosts).
+- What a date, a meal and a mess ID are is said once, in the server instructions (`server.ts`); schemas and descriptions don't repeat it. Tool definitions are paid for in every conversation: check `npm run count-tokens` when you add or reword one, and raise the budget in `test/tools.test.mjs` deliberately.
+- Name tools for what they do for the user, not for the portal's endpoint: a model reads the set of names as a whole (`register_meal` plus `cancel_meal` read as create and delete, and models cancelled a meal to change its mess). Prefer fixing a misleading name over adding a warning to a description.
+- Tools that write take a list of meals and report a result per meal (`lib/batch.ts`). A mess ID is checked against the portal's list before a write (`requireMesses`), so a wrong one fails with the valid IDs. Tools get the clock from their context (`run(api, args, { now })`), so tests can pin "today".
 - Tool names are snake_case and stable. Renaming one breaks users' saved permissions and prompts.
 
 ## Security
