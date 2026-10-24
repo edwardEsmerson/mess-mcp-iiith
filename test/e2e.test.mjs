@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, before, test } from "node:test";
 
 // E2E_PORT lets several checkouts run the suite at once
@@ -194,7 +195,7 @@ test("authorize page: rendering, validation and errors", async () => {
   assert.equal(location.searchParams.get("iss"), BASE);
 });
 
-test("token endpoint: PKCE, single-use codes, rotation and reuse detection", async () => {
+test("token endpoint: PKCE, single-use codes, rotation, retry grace and reuse detection", async () => {
   const { body: client } = await register();
 
   // A failed PKCE check burns the code
@@ -221,10 +222,27 @@ test("token endpoint: PKCE, single-use codes, rotation and reuse detection", asy
   assert.notEqual(rotated.refresh_token, tokens.refresh_token);
   assert.equal((await mcp(rotated.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).res.status, 200);
 
+  // A client that never saw the response above retries with the same token. Right after rotation that works
+  const retried = await refresh(tokens.refresh_token);
+  assert.equal(retried.status, 200, "a retry inside the grace window gets a fresh pair");
+  const retriedTokens = await retried.json();
+  assert.notEqual(retriedTokens.refresh_token, rotated.refresh_token);
+  assert.equal((await mcp(retriedTokens.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).res.status, 200);
+
+  // Later it is a replay. The grace window is 30s, so move the rotation back in the database instead of waiting
+  const db = new DatabaseSync(join(dataDir, "mess-mcp.db"), { timeout: 2000 });
+  try {
+    const aged = db.prepare("UPDATE tokens SET used_at = used_at - 60000 WHERE token_hash = ?").run(createHash("sha256").update(tokens.refresh_token).digest("hex"));
+    assert.equal(aged.changes, 1);
+  } finally {
+    db.close();
+  }
   const reuse = await refresh(tokens.refresh_token);
   assert.equal(reuse.status, 400);
   assert.equal((await reuse.json()).error, "invalid_grant");
-  assert.equal((await mcp(rotated.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).res.status, 401, "reuse revokes the whole grant");
+  for (const { access_token } of [rotated, retriedTokens]) {
+    assert.equal((await mcp(access_token, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).res.status, 401, "reuse after the window revokes the whole grant");
+  }
 });
 
 test("MCP calls use the stored key; bad tokens and foreign origins are refused", async () => {

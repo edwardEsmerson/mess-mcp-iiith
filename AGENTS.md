@@ -49,7 +49,7 @@ src/
     crypto.ts        AES-GCM SecretBox, HMAC Signer, HKDF from MCP_SECRET, PKCE
     clients.ts       ClientResolver strategies: CIMD (with SSRF guard) and DCR-registered
     grants.ts        GrantService (seal/unseal dining keys), PortalKeyValidator
-    tokens.ts        TokenService: codes, access/refresh tokens, rotation, verifier for /mcp
+    tokens.ts        TokenService: codes, access/refresh tokens, rotation (30 s retry grace), verifier for /mcp; unit tests in test/tokens.test.mjs
     authorize.ts     GET/POST /authorize (key-paste page, signed pending request)
     endpoints.ts     /token, /revoke, /register, AS metadata
     pages.ts         HTML rendering only

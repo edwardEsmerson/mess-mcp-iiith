@@ -1,6 +1,7 @@
 // Authorization codes, access tokens and refresh tokens. All are opaque random strings;
 // only their SHA-256 hashes are stored. Refresh tokens rotate on every use, and presenting
-// an already-used one revokes the whole grant (OAuth 2.1 refresh token reuse detection).
+// an already-used one revokes the whole grant (OAuth 2.1 refresh token reuse detection),
+// except for a short grace window after rotation (see refresh()).
 
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 import type { AuthInfo, OAuthTokens, OAuthTokenVerifier } from "@modelcontextprotocol/server";
@@ -11,12 +12,15 @@ export interface TokenLifetimes {
   codeMs: number;
   accessMs: number;
   refreshMs: number;
+  /** How long after rotation the old refresh token is still accepted once more. */
+  refreshReuseGraceMs: number;
 }
 
 export const DEFAULT_LIFETIMES: TokenLifetimes = {
   codeMs: 5 * 60 * 1000,
   accessMs: 60 * 60 * 1000,
   refreshMs: 60 * 24 * 60 * 60 * 1000,
+  refreshReuseGraceMs: 30 * 1000,
 };
 
 export const ACCESS_TOKEN_PREFIX = "mmcp_at_";
@@ -73,7 +77,12 @@ export class TokenService implements OAuthTokenVerifier {
 
     const grant = this.grants.find(record.grantId);
     if (!grant || grant.clientId !== input.clientId) throw invalid;
-    if (record.usedAt !== undefined) {
+    // A client whose request timed out after we rotated the token never saw the new pair and retries with
+    // the old one. Shortly after rotation that is served with another new pair; later it is treated as a
+    // stolen token being replayed and the grant ends. The window runs from the first rotation, so retries
+    // can't keep it open, and the new pair from the first rotation stays valid alongside the retry's.
+    const { usedAt } = record;
+    if (usedAt !== undefined && this.clock() - usedAt > this.lifetimes.refreshReuseGraceMs) {
       this.grants.delete(grant.id);
       throw invalid;
     }
@@ -81,7 +90,7 @@ export class TokenService implements OAuthTokenVerifier {
       throw new OAuthError(OAuthErrorCode.InvalidTarget, "Token was not issued for this resource");
     }
 
-    this.tokens.markUsed(hash, this.clock());
+    if (usedAt === undefined) this.tokens.markUsed(hash, this.clock());
     return this.issueTokens(grant);
   }
 
