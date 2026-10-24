@@ -9,6 +9,7 @@ import { hostHeaderValidation, mcpAuthMetadataRouter, originValidation, requireB
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { MessApiClient, type MessApi } from "./api/client.js";
 import { createAuthorizationServer } from "./auth/index.js";
+import { ClientIps } from "./client-ip.js";
 import { FONT_PATH } from "./auth/pages.js";
 import { RevokeOnUnauthorized } from "./auth/revoke-on-unauthorized.js";
 import { openDatabase } from "./auth/sqlite.js";
@@ -29,6 +30,7 @@ try {
   process.exit(1);
 }
 
+const clientIps = new ClientIps(config.proxySecret);
 const db = openDatabase(config.databasePath);
 // Metrics are opt-in: without DASHBOARD_PASSWORD nothing is recorded and /metrics, /dashboard don't exist
 const metrics = config.dashboardPassword ? new MetricsRecorder(new SqliteMetricsStore(db)) : undefined;
@@ -41,6 +43,7 @@ const auth = createAuthorizationServer({
   apiFor: (key) => new MessApiClient(key),
   documentation: DOCS_URL,
   events: metrics,
+  clientKey: clientIps.key,
 });
 
 function grantIdOf(authInfo: AuthInfo | undefined): string | undefined {
@@ -76,6 +79,7 @@ const mcp = toNodeHandler(
 // and that form is already protected by its signed request.
 const app = express();
 app.use(hostHeaderValidation(config.allowedHosts));
+app.use(clientIps.observe);
 if (metrics) {
   app.use(
     measureRequests(metrics, [
@@ -123,6 +127,7 @@ if (config.dashboardPassword && metrics) {
       version: SERVER_VERSION,
       host: new URL(config.publicOrigin).host,
       secureCookie: config.publicOrigin.startsWith("https:"),
+      clientKey: clientIps.key,
     }),
   );
 }
@@ -168,4 +173,5 @@ app.listen(config.port, config.host, (error?: Error) => {
   }
   console.error(`${SERVER_NAME} listening on http://${config.host}:${config.port}/mcp (public: ${config.resourceUrl.href})`);
   console.error(metrics ? `Dashboard: ${config.publicOrigin}/dashboard` : "Dashboard off. Set DASHBOARD_PASSWORD to turn it on.");
+  console.error(config.proxySecret ? "Client IPs: trusting the Worker's address header when its secret matches PROXY_SECRET." : "Client IPs: from the connection only. Set PROXY_SECRET to trust the Worker's address header.");
 });

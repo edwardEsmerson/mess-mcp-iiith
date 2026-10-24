@@ -38,6 +38,7 @@ src/
   stdio.ts           stdio entry point (serveStdio)
   http.ts            composition root: Express app, OAuth metadata, bearer auth, /mcp via createMcpHandler
   config.ts          HTTP config from env, validated at startup
+  client-ip.ts       ClientIps: the caller's IP for rate limits (the Worker's header, trusted only with PROXY_SECRET)
   tools.ts           every tool as one table entry: { title, description, annotations, input, run }
   api/client.ts      MessApi interface, MessApiClient (one per key), MessApiError
   lib/schemas.ts     shared zod input schemas, tool annotations, IST date helpers
@@ -86,6 +87,7 @@ deploy/cloudflare-worker/    Worker that serves a custom domain by forwarding to
 - Never log API keys, tokens, `Authorization` headers or whole request objects.
 - Metrics hold aggregates only: never put user-specific values (keys, tokens, names, roll numbers, tool arguments or results) in a metric or label. Keep label values bounded (tool names, outcomes, known routes).
 - Keep the SDK's Host and Origin validation (`createMcpExpressApp` with `allowedHosts`/`allowedOrigins`) on the HTTP path.
+- Rate limits key on `ClientIps.key` (`client-ip.ts`), never on `req.ip` or `X-Forwarded-For` directly. Behind the Worker `req.ip` is a shared Cloudflare address, so the Worker sends `X-Mess-Client-IP` plus `X-Mess-Proxy-Secret`, and the header is believed only when the secret equals `PROXY_SECRET` (constant-time compare). The Worker must keep overwriting both headers. Never log the secret or any client IP.
 - `/mcp` accepts only tokens this server issued for `PUBLIC_URL/mcp` (spec: MUST NOT accept other tokens). Raw dining keys belong to stdio mode.
 - Store only SHA-256 hashes of codes and tokens; dining keys only sealed with `SecretBox`.
 - CIMD fetches go through `PublicHttpsJsonFetcher`, which refuses private, loopback and CGNAT addresses. Don't bypass it: the host sits inside the campus network.

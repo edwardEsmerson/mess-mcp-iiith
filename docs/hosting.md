@@ -83,6 +83,23 @@ If Funnel isn't enabled for your tailnet yet, the command prints a link that tur
    ```bash
    sudo systemctl restart mess-mcp
    ```
+5. **Let the rate limits tell visitors apart (recommended).** Through the Worker every request reaches the server from a Cloudflare address, so people connecting via the same Cloudflare location would share one rate limit, and one person hammering `/authorize` could lock the others out of signing in. The Worker passes each visitor's address in an `X-Mess-Client-IP` header along with a shared secret in `X-Mess-Proxy-Secret`. The server believes the address only when the secret equals its `PROXY_SECRET` (and otherwise uses the connection's address, as before), and the Worker overwrites both headers on every request so visitors can't forge them. Set the same secret in both places; nothing changes until both match, so the order doesn't matter:
+   ```bash
+   openssl rand -hex 32          # prints the secret; copy it
+   ```
+   On the server:
+   ```bash
+   sudoedit /etc/mess-mcp.env    # add a line: PROXY_SECRET=<the secret>
+   sudo systemctl restart mess-mcp
+   journalctl -u mess-mcp -n 5   # shows "Client IPs: trusting the Worker's address header ..."
+   ```
+   On your computer:
+   ```bash
+   cd deploy/cloudflare-worker
+   npx wrangler secret put PROXY_SECRET   # paste the same secret when asked
+   npx wrangler deploy                    # once, so the Worker sends the headers
+   ```
+   Check it: `curl -s https://your-domain.tld/healthz`, then `journalctl -u mess-mcp -n 5` should show "Client IPs: the proxy secret matched ...". If it says the secret "doesn't match PROXY_SECRET" instead, the two values differ. The log never contains addresses or the secret, and each line appears once per restart. To turn it off, remove the line and restart (and `npx wrangler secret delete PROXY_SECRET`). Requests that reach the Funnel URL directly carry no secret and are limited by connection address.
 
 Keep Funnel running; the Worker depends on it. Cloudflare terminates TLS, so it can see traffic to the server, including the dining keys pasted on the sign-in page. Changing `PUBLIC_URL` invalidates existing tokens (they are bound to `PUBLIC_URL/mcp`), so everyone has to remove the connector and add the new URL. Keep `MCP_SECRET` the same.
 
@@ -143,5 +160,6 @@ sudo systemctl restart mess-mcp
 
 - **claude.ai says "Couldn't reach the MCP server":** run the step 5 check from outside your network. If it fails, the problem is Funnel or the Worker, not the app.
 - **`Host ... is not allowed` (403):** the client used a hostname other than `PUBLIC_URL`'s. Add it to `ALLOWED_HOSTS`. Behind the Worker this means the `.ts.net` host is missing from it.
+- **Several people get "Too many requests" (429) at the same time:** behind the Worker the server counts everyone from one Cloudflare location as a single visitor. Set up `PROXY_SECRET` (step 5 under "Your own domain").
 - **Sign-in sends you to the `.ts.net` address:** `PUBLIC_URL` still has the Funnel URL. Set it to your domain and restart.
 - **Sign-in page says it couldn't reach the mess portal:** the machine has lost campus network access (check with the `curl` from "What you need").

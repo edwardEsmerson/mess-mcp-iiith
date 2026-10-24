@@ -19,6 +19,8 @@ export interface MetricsRouterDeps {
   host: string;
   /** Mark the session cookie Secure (true whenever the public URL is https). */
   secureCookie: boolean;
+  /** Identifies the caller for rate limits: the client IP (see client-ip.ts). */
+  clientKey: (req: Request) => string;
 }
 
 const COOKIE = "mess_mcp_dashboard";
@@ -35,7 +37,7 @@ export function metricsRouter(deps: MetricsRouterDeps): Router {
   const router = Router();
   const session = new DashboardSession(deps.password);
   // Only failed attempts count, so a scraper or a signed-in browser is never limited
-  const limitGuesses = rateLimit({ windowMs: 15 * 60_000, limit: 30, skipSuccessfulRequests: true, standardHeaders: "draft-8", legacyHeaders: false });
+  const limitGuesses = rateLimit({ windowMs: 15 * 60_000, limit: 30, skipSuccessfulRequests: true, keyGenerator: deps.clientKey, standardHeaders: "draft-8", legacyHeaders: false });
 
   router.post("/dashboard", limitGuesses, express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
     const password = typeof req.body?.password === "string" ? req.body.password : "";

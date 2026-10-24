@@ -1,7 +1,7 @@
 // Assembles the authorization server from its parts. The only place concrete classes are chosen.
 
 import type { DatabaseSync } from "node:sqlite";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { rateLimit } from "express-rate-limit";
 import type { MessApi } from "../api/client.js";
 import { authorizeRouter } from "./authorize.js";
@@ -26,6 +26,8 @@ export interface AuthorizationServerOptions {
   clock?: Clock;
   /** Sign-in outcomes go here (metrics). */
   events?: AuthEvents;
+  /** Identifies the caller for rate limits: the client IP (see client-ip.ts). */
+  clientKey: (req: Request) => string;
 }
 
 export function createAuthorizationServer(options: AuthorizationServerOptions) {
@@ -42,9 +44,10 @@ export function createAuthorizationServer(options: AuthorizationServerOptions) {
 
   const router = Router();
   // Claude's backend calls /token from a shared IP range, so that limit is per-IP but generous
-  router.use("/authorize", rateLimit({ windowMs: 5 * 60_000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false }));
-  router.use(["/token", "/revoke"], rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: "draft-8", legacyHeaders: false }));
-  router.use("/register", rateLimit({ windowMs: 60 * 60_000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false }));
+  const limitPerClient = (windowMs: number, limit: number) => rateLimit({ windowMs, limit, keyGenerator: options.clientKey, standardHeaders: "draft-8", legacyHeaders: false });
+  router.use("/authorize", limitPerClient(5 * 60_000, 60));
+  router.use(["/token", "/revoke"], limitPerClient(60_000, 300));
+  router.use("/register", limitPerClient(60 * 60_000, 60));
 
   router.use(
     authorizeRouter({

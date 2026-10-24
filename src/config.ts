@@ -17,6 +17,8 @@ export interface HttpConfig {
   masterSecret: Buffer;
   databasePath: string;
   trustProxy: string;
+  /** Shared with the Cloudflare Worker, which then vouches for each visitor's IP (see client-ip.ts). */
+  proxySecret?: string;
   /** True only for http://localhost development setups. */
   insecureLocalIssuer: boolean;
   /** Enables /metrics and /dashboard when set. */
@@ -36,6 +38,11 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
   const dashboardPassword = env.DASHBOARD_PASSWORD || env.METRICS_TOKEN || undefined;
   if (dashboardPassword && dashboardPassword.length < 10) throw new Error("DASHBOARD_PASSWORD must be at least 10 characters: the dashboard is on the public internet.");
 
+  const proxySecret = env.PROXY_SECRET?.trim() || undefined;
+  if (proxySecret && (proxySecret.length < 20 || !/^[\x21-\x7e]+$/.test(proxySecret))) {
+    throw new Error("PROXY_SECRET must be at least 20 characters with no spaces. Generate one with: openssl rand -hex 32");
+  }
+
   const publicOrigin = publicUrl.origin;
   const dataDir = env.STATE_DIRECTORY?.split(":")[0] || env.DATA_DIR || "./data";
 
@@ -50,6 +57,7 @@ export function loadHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig
     masterSecret: parseMasterSecret(env.MCP_SECRET),
     databasePath: join(dataDir, "mess-mcp.db"),
     trustProxy: env.TRUST_PROXY || "loopback",
+    proxySecret,
     insecureLocalIssuer,
     dashboardPassword,
     hostingNote: env.HOSTING_NOTE?.trim() || undefined,
