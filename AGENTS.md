@@ -53,7 +53,7 @@ src/
     authorize.ts     GET/POST /authorize (key-paste page, signed pending request)
     endpoints.ts     /token, /revoke, /register, AS metadata
     pages.ts         HTML rendering only
-    revoke-on-unauthorized.ts   MessApi decorator: portal 401 revokes the grant
+    revoke-on-unauthorized.ts   MessApi decorator: a portal 401 revokes the grant once /auth/me confirms the key is dead
   metrics/           opt-in usage metrics (DASHBOARD_PASSWORD): /metrics for Prometheus, /dashboard as HTML
     model.ts         ToolOutcome, DailyCount, MetricsStore interface
     recorder.ts      MetricsRecorder: in-memory Prometheus counters + buffered daily totals

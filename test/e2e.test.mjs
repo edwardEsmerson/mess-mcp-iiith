@@ -31,14 +31,20 @@ const PORTAL_CONFIG = {
 
 let portal;
 let portalKeyRevoked = false;
+let portalRejects; // a path the portal answers 401 on even for a good key
+let portalDrops; // a path where the portal hangs up instead of answering
+const portalPaths = []; // every path the portal was asked for
 let server;
 let dataDir;
 
 before(async () => {
   portal = http.createServer((req, res) => {
-    const ok = req.headers.authorization === GOOD_KEY && !portalKeyRevoked;
+    const path = new URL(req.url, "http://portal").pathname;
+    portalPaths.push(path);
+    if (path === portalDrops) return req.socket.destroy();
+    const ok = req.headers.authorization === GOOD_KEY && !portalKeyRevoked && path !== portalRejects;
     res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
-    const data = PORTAL_CONFIG[new URL(req.url, "http://portal").pathname] ?? { name: "Test Student" };
+    const data = PORTAL_CONFIG[path] ?? { name: "Test Student" };
     res.end(JSON.stringify(ok ? { data } : { error: { message: "Please login to view this page." } }));
   });
   portal.listen(0, "127.0.0.1");
@@ -455,5 +461,76 @@ test("responses don't advertise the framework", async () => {
   for (const path of ["/healthz", "/authorize", "/nothing-here", "/.well-known/oauth-authorization-server", "/mcp"]) {
     const res = await fetch(`${BASE}${path}`);
     assert.equal(res.headers.get("x-powered-by"), null, path);
+  }
+});
+
+const callTool = (token, name) => mcp(token, { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name, arguments: {} } });
+const listTools = (token) => mcp(token, { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} });
+
+test("a stray 401 on one portal endpoint doesn't end the grant", async () => {
+  const { body: client } = await register();
+  const tokens = await signIn(client.client_id);
+
+  portalRejects = "/mess/info";
+  try {
+    portalPaths.length = 0;
+    const stray = await callTool(tokens.access_token, "get_mess_info");
+    assert.equal(stray.json.result.isError, true, "the call itself still fails");
+    assert.doesNotMatch(stray.json.result.content[0].text, /Reconnect/, "and doesn't tell the user to sign in again");
+    assert.deepEqual(portalPaths, ["/mess/info", "/auth/me"], "the key was checked once on /auth/me");
+
+    assert.equal((await listTools(tokens.access_token)).res.status, 200, "the grant survives");
+    assert.match((await callTool(tokens.access_token, "get_user_info")).json.result.content[0].text, /Test Student/);
+  } finally {
+    portalRejects = undefined;
+  }
+  assert.ok(!(await callTool(tokens.access_token, "get_mess_info")).json.result.isError, "later calls to the same endpoint work");
+});
+
+test("a network error while rechecking the key doesn't end the grant", async () => {
+  const { body: client } = await register();
+  const tokens = await signIn(client.client_id);
+
+  portalRejects = "/mess/info";
+  portalDrops = "/auth/me";
+  try {
+    const call = await callTool(tokens.access_token, "get_mess_info");
+    assert.equal(call.json.result.isError, true);
+    assert.doesNotMatch(call.json.result.content[0].text, /Reconnect/);
+    assert.equal((await listTools(tokens.access_token)).res.status, 200, "the grant survives");
+  } finally {
+    portalRejects = portalDrops = undefined;
+  }
+});
+
+test("a key the portal refuses everywhere is confirmed once, then the grant ends", async () => {
+  const { body: client } = await register();
+  const fanOut = await signIn(client.client_id);
+  const single = await signIn(client.client_id);
+  const identity = await signIn(client.client_id);
+
+  portalKeyRevoked = true;
+  try {
+    // get_deadlines asks four endpoints at once; all four get 401, but /auth/me is asked once
+    portalPaths.length = 0;
+    const many = await callTool(fanOut.access_token, "get_deadlines");
+    assert.match(many.json.result.content[0].text, /Reconnect/);
+    assert.equal(portalPaths.filter((p) => p === "/auth/me").length, 1);
+    assert.equal((await listTools(fanOut.access_token)).res.status, 401, "the grant is gone");
+
+    portalPaths.length = 0;
+    const one = await callTool(single.access_token, "get_mess_info");
+    assert.match(one.json.result.content[0].text, /Reconnect/);
+    assert.deepEqual(portalPaths, ["/mess/info", "/auth/me"]);
+    assert.equal((await listTools(single.access_token)).res.status, 401);
+
+    // When the failing call is the identity check, there is nothing to recheck
+    portalPaths.length = 0;
+    const me = await callTool(identity.access_token, "get_user_info");
+    assert.match(me.json.result.content[0].text, /Reconnect/);
+    assert.deepEqual(portalPaths, ["/auth/me"]);
+    assert.equal((await listTools(identity.access_token)).res.status, 401);
+  } finally {
+    portalKeyRevoked = false;
   }
 });
