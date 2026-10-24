@@ -6,16 +6,20 @@ import type { ToolAnnotations } from "@modelcontextprotocol/server";
 
 export const MEALS = ["breakfast", "lunch", "snacks", "dinner"] as const;
 
-export const meal = z.enum(MEALS).describe("Meal type");
-export const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").describe("Date as YYYY-MM-DD");
-export const optionalDate = date.optional().describe("Date as YYYY-MM-DD. Defaults to today (IST).");
-export const month = z.number().int().min(1).max(12).describe("Month, 1-12");
+// What a date, a meal and a mess ID are is said once, in the server instructions, so these carry no
+// descriptions: tools/list pays for every one of them on every tool that takes them.
+export const meal = z.enum(MEALS);
+// Rejects dates that don't exist (2026-02-30). Clients see just `format: "date"`, not zod's long
+// leap-year regex (see compactJsonSchema); the error teaches the format to clients that skip the instructions.
+export const date = z.iso.date({ error: "Use a calendar date as YYYY-MM-DD, e.g. 2026-10-25" });
+export const optionalDate = date.optional();
+export const month = z.number().int().min(1).max(12);
 export const year = z.number().int().min(2000).max(2100).describe("Year, e.g. 2026");
-export const messId = z.string().min(1).describe("Mess ID from get_mess_info, e.g. yuktahar or kadamba-veg");
+export const messId = z.string();
 
 // zod's JSON Schema has noise a model gains nothing from, yet every tools/list sends it:
-// a $schema URL on each tool and ±2^53 bounds on each .int(). Drop both from what clients see;
-// validation is still zod's.
+// a $schema URL on each tool, ±2^53 bounds on each .int() and the regex behind each date's
+// `format: "date"`. Drop these from what clients see; validation is still zod's.
 export function compactJsonSchema<T extends z.ZodType>(schema: T): T {
   const std = schema["~standard"];
   schema["~standard"] = {
@@ -31,6 +35,7 @@ function stripSchemaNoise(node: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
     if (key === "$schema") continue;
+    if (key === "pattern" && "format" in node && node.format === "date") continue;
     if (key === "maximum" && value === Number.MAX_SAFE_INTEGER) continue;
     if (key === "minimum" && value === Number.MIN_SAFE_INTEGER) continue;
     out[key] = stripSchemaNoise(value);

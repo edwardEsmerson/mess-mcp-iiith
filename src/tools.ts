@@ -27,7 +27,7 @@ interface Tool<S extends z.ZodRawShape> {
 // Identity helper so each entry's `run` gets typed args from its own `input`
 const tool = <S extends z.ZodRawShape = {}>(def: Tool<S>) => def;
 
-const guests = z.number().int().min(0).optional().describe("Number of guests");
+const guests = z.number().int().min(0).optional();
 const mealList = <T extends z.ZodType>(item: T) => z.array(item).min(1).max(MAX_MEALS_PER_CALL);
 
 // The portal answers an empty list with an empty 204, which the client turns into {}
@@ -48,13 +48,13 @@ const tools = {
 
   update_preferences: tool({
     title: "Update preferences",
-    description: "Change preferences. Only the fields you pass are changed.",
+    description: "Change preferences (see get_account). Only the fields you pass change.",
     annotations: { ...WRITE, idempotentHint: true },
     input: {
-      notify_not_registered: z.boolean().optional().describe("Email a reminder before the registration deadline"),
-      notify_malloc_happened: z.boolean().optional().describe("Email when randomly allocated to a meal"),
+      notify_not_registered: z.boolean().optional().describe("Email a reminder before the deadline"),
+      notify_malloc_happened: z.boolean().optional().describe("Email when allocated a meal"),
       auto_reset_token_daily: z.boolean().optional().describe("Reset the QR token daily"),
-      enable_unregistered: z.boolean().optional().describe("Allow availing meals without registering"),
+      enable_unregistered: z.boolean().optional().describe("Allow eating without registering"),
       nag_for_feedback: z.boolean().optional().describe("Prompt for feedback after meals"),
     },
     run: async (api, changes) => {
@@ -190,7 +190,7 @@ const tools = {
 
   create_monthly_registration: tool({
     title: "Register for a month",
-    description: "Register at one mess for a whole month.",
+    description: "Register at one mess for a whole month. It is charged to your bill: confirm with the user first.",
     annotations: WRITE,
     input: { month, year, mess: messId },
     run: async (api, args) => {
@@ -224,13 +224,13 @@ const tools = {
 
   register_extra: tool({
     title: "Register an extra item",
-    description: "Register for an extra item. It is charged to your bill.",
+    description: "Register for an extra item from get_extras (same date and meal). It is charged to your bill: confirm with the user first.",
     annotations: WRITE,
     input: {
-      extra_id: z.string().min(1).describe("Item ID from get_extras for the same date and meal"),
+      extra_id: z.string().describe("ID from get_extras"),
       date,
       meal,
-      mess: messId.describe("Mess offering this extra on that date"),
+      mess: messId,
     },
     run: async (api, { extra_id, date, meal, mess }) => {
       await requireMesses(api, [mess]);
@@ -240,9 +240,9 @@ const tools = {
 
   delete_extra_registration: tool({
     title: "Delete an extra registration",
-    description: "Delete an extra item registration.",
+    description: "Delete an extra you registered.",
     annotations: DESTRUCTIVE,
-    input: { registration_id: z.string().min(1).describe("Registration ID from get_extras") },
+    input: { registration_id: z.string().describe("Registration ID from the registered list in get_extras") },
     run: (api, { registration_id }) => api.delete("/registrations/extras", { id: registration_id }),
   }),
 
@@ -263,8 +263,8 @@ const tools = {
     input: {
       date,
       meal,
-      rating: z.number().int().min(1).max(5).describe("Rating, 1-5"),
-      remarks: z.string().optional().describe("Comments"),
+      rating: z.number().int().min(1).max(5),
+      remarks: z.string().optional(),
     },
     run: (api, { date, meal, rating, remarks }) => api.post("/registrations/feedback", { meal_date: date, meal_type: meal, rating, remarks }),
   }),
