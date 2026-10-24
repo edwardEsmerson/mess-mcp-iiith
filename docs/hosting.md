@@ -1,6 +1,6 @@
 # Hosting the server
 
-This runs the HTTP server with OAuth so anyone at IIITH can add it to claude.ai, Claude Desktop, Claude Code and other clients with just a URL.
+This runs the HTTP server with OAuth so anyone at IIITH can add it to claude.ai, ChatGPT, Claude Code and other clients with just a URL.
 
 ## What you need
 
@@ -35,6 +35,8 @@ HOST=127.0.0.1
 PORT=3000
 CONF
 ```
+
+Every setting is listed with comments in `.env.example` (the README has the same list). The ones used below are `PUBLIC_URL`, `MCP_SECRET`, `ALLOWED_HOSTS` (step 4), `PROXY_SECRET` (step 4), `HOSTING_NOTE` (step 6) and `DASHBOARD_PASSWORD` (step 7).
 
 `MCP_SECRET` encrypts the stored dining keys. Back it up along with `/var/lib/mess-mcp/` (`mess-mcp.db`, plus the `-wal` and `-shm` files next to it). If you lose it, nothing leaks: everyone just has to reconnect.
 
@@ -101,7 +103,7 @@ If Funnel isn't enabled for your tailnet yet, the command prints a link that tur
    ```
    Check it: `curl -s https://your-domain.tld/healthz`, then `journalctl -u mess-mcp -n 5` should show "Client IPs: the proxy secret matched ...". If it says the secret "doesn't match PROXY_SECRET" instead, the two values differ. The log never contains addresses or the secret, and each line appears once per restart. To turn it off, remove the line and restart (and `npx wrangler secret delete PROXY_SECRET`). Requests that reach the Funnel URL directly carry no secret and are limited by connection address.
 
-Keep Funnel running; the Worker depends on it. Cloudflare terminates TLS, so it can see traffic to the server, including the dining keys pasted on the sign-in page. Changing `PUBLIC_URL` invalidates existing tokens (they are bound to `PUBLIC_URL/mcp`), so everyone has to remove the connector and add the new URL. Keep `MCP_SECRET` the same.
+Keep Funnel running; the Worker depends on it. Cloudflare terminates TLS, so it can see traffic to the server, including the dining keys pasted on the sign-in page. Say so in `HOSTING_NOTE` (step 6) so users can find out. Changing `PUBLIC_URL` invalidates existing tokens (they are bound to `PUBLIC_URL/mcp`), so everyone has to remove the connector and add the new URL. Keep `MCP_SECRET` the same.
 
 ## 5. Check it from outside
 
@@ -113,7 +115,18 @@ curl -s https://your-public-url/.well-known/oauth-protected-resource/mcp
 
 The `resource` in the reply must be `PUBLIC_URL/mcp`. Then add `PUBLIC_URL/mcp` as a custom connector in claude.ai and connect.
 
-## 6. Metrics dashboard (optional)
+## 6. Say how it's hosted (recommended)
+
+The public `PUBLIC_URL/privacy` page tells users who can see their dining key. The server can't tell how you expose it, so by default the page only says that the operator hasn't described the setup. Set `HOSTING_NOTE` to add your own description under "How this server is hosted":
+
+```bash
+sudoedit /etc/mess-mcp.env       # add a line: HOSTING_NOTE="Runs on a machine on the IIITH campus network, behind Cloudflare."
+sudo systemctl restart mess-mcp  # the pages are rendered once at startup
+```
+
+It is plain text (HTML is escaped). Be specific about anything in front of the server: a proxy like Cloudflare ends the secure connection and can read the dining keys users paste, while Tailscale Funnel only passes encrypted traffic along and can't. Open `PUBLIC_URL/privacy` to see how it reads. Leave it unset to show nothing.
+
+## 7. Metrics dashboard (optional)
 
 The server can count what it does and show it at `PUBLIC_URL/dashboard`: active users per day, tool calls and failures per tool, sign-ins, which apps are connected, and whether the mess portal is reachable. It's off until you pick a password:
 
@@ -123,7 +136,7 @@ sudo systemctl restart mess-mcp
 journalctl -u mess-mcp -n 3      # prints "Dashboard: PUBLIC_URL/dashboard"
 ```
 
-Open `PUBLIC_URL/dashboard` and sign in with that password. The browser stays signed in for 30 days; changing the password signs everyone out. Use the 7/30/90 day buttons for the time range. It's on the public internet, so the password must be at least 10 characters, and wrong guesses are rate limited.
+(The old name `METRICS_TOKEN` is still read, so existing configs keep working.) Open `PUBLIC_URL/dashboard` and sign in with that password. The browser stays signed in for 30 days; changing the password signs everyone out. Use the 7/30/90 day buttons for the time range. It's on the public internet, so the password must be at least 10 characters, and wrong guesses are rate limited.
 
 Only totals are stored, in the same SQLite file: counts per day, tool and outcome, plus which connection IDs made a call on which day (to count active users; deleted after 90 days). No keys, tokens, names or meal data. Daily totals are written once a minute and on shutdown.
 
