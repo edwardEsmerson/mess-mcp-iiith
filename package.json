@@ -27,7 +27,7 @@
   "dependencies": {
     "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",
     "@modelcontextprotocol/express": "^2.0.2",
-    "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/node": "^2.1.2",
     "@modelcontextprotocol/server": "^2.3.1",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
